@@ -71,14 +71,26 @@ Prerequisites:
 
 - Node.js 22.19.x (see `.nvmrc`)
 - npm 10.x
+- PostgreSQL 18.x (CI uses `postgres:18-alpine`)
 
 Install and verify the complete workspace:
 
 ```powershell
 npm ci
+npm run db:migrate:deploy
 npm run check
 npm run smoke:health
 ```
+
+Set `DATABASE_URL`, `AUTH_ACCESS_SECRET`, and `AUTH_RATE_LIMIT_PEPPER` before
+running the API. The two auth secrets must be distinct and contain at least 32
+bytes. Development placeholders in `apps/api/.env.example` are intentionally
+rejected until replaced.
+
+Database integration tests are enabled only by an explicit `TEST_DATABASE_URL`.
+For safety, it must use PostgreSQL on a loopback host and name a database with a
+`test` segment (for example, `hawelly_test`). The integration suites truncate
+their isolated test data between cases and never fall back to `DATABASE_URL`.
 
 Start the API and web application together:
 
@@ -91,11 +103,19 @@ Local endpoints:
 - Web: `http://127.0.0.1:3000`
 - API liveness: `http://127.0.0.1:4000/health`
 - API readiness: `http://127.0.0.1:4000/health/ready`
+- Sender registration: `POST http://127.0.0.1:4000/auth/register`
+- Login: `POST http://127.0.0.1:4000/auth/login`
+- Current user: `GET http://127.0.0.1:4000/me`
 
 Copy each app's `.env.example` to a local ignored env file only when configuration changes are needed. Every `NEXT_PUBLIC_*` web variable is bundled into browser code and must never contain credentials or private service configuration.
+
+Public registration creates sender accounts only. Staff and admin accounts must
+be provisioned through an explicitly authorized operational path; Hawelly does
+not expose public privileged-role registration.
 
 The Android directory is a sender-client placeholder until Milestone 9. No Android SDK is required for the current bootstrap.
 
 ## Status
 
-Milestone 0 repository bootstrap complete. Milestone 1 covers the database foundation and authentication.
+Milestones 0 and 1 are complete. Milestone 2 covers the shared web design system
+and role-specific portal shells.

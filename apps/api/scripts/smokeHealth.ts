@@ -55,7 +55,12 @@ async function main() {
       ...process.env,
       HOST: "127.0.0.1",
       PORT: String(port),
-      NODE_ENV: "test"
+      NODE_ENV: "test",
+      AUTH_ACCESS_SECRET:
+        process.env.AUTH_ACCESS_SECRET || "smoke-only-access-secret-at-least-32-characters",
+      AUTH_RATE_LIMIT_PEPPER:
+        process.env.AUTH_RATE_LIMIT_PEPPER ||
+        "smoke-only-rate-pepper-distinct-at-least-32-characters"
     },
     stdio: ["ignore", "pipe", "pipe"]
   });

@@ -29,8 +29,10 @@ pnpm-debug.log*
 Thumbs.db
 .idea/
 .vscode/
+.local/
 
 apps/api/uploads/
+apps/api/src/generated/
 backups/
 smoke-runs/
 

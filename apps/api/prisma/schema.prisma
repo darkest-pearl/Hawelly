@@ -1,0 +1,538 @@
+generator client {
+  provider   = "prisma-client"
+  output     = "../src/generated/prisma"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id                           String                   @id @default(uuid()) @db.Uuid
+  fullName                     String                   @db.VarChar(160)
+  email                        String                   @unique @db.VarChar(320)
+  passwordHash                 String
+  role                         Role
+  status                       UserStatus               @default(ACTIVE)
+  sessionVersion               Int                      @default(0)
+  passwordChangedAt            DateTime                 @default(now()) @db.Timestamptz(3)
+  lastLoginAt                  DateTime?                @db.Timestamptz(3)
+  createdAt                    DateTime                 @default(now()) @db.Timestamptz(3)
+  updatedAt                    DateTime                 @updatedAt @db.Timestamptz(3)
+  staffProfile                 StaffProfile?
+  sessions                     AuthSession[]
+  capabilityGrants             StaffCapabilityGrant[]   @relation("CapabilityStaff")
+  capabilitiesGranted          StaffCapabilityGrant[]   @relation("CapabilityGrantedBy")
+  capabilitiesRevoked          StaffCapabilityGrant[]   @relation("CapabilityRevokedBy")
+  recipients                   Recipient[]              @relation("RecipientOwner")
+  transfers                    TransferRequest[]        @relation("TransferSender")
+  quotesCreated                Quote[]                  @relation("QuoteCreatedBy")
+  fundingInstructionsPublished FundingInstruction[]     @relation("FundingInstructionPublishedBy")
+  fundingProofsSubmitted       FundingProof[]           @relation("FundingProofSubmittedBy")
+  fundingProofsReviewed        FundingProof[]           @relation("FundingProofReviewedBy")
+  payoutCasesOwned             PayoutCase[]             @relation("PayoutCaseOwner")
+  payoutEvidenceCreated        PayoutEvidence[]         @relation("PayoutEvidenceCreatedBy")
+  confirmations                TransferConfirmation[]   @relation("ConfirmationActor")
+  associateContactsCreated     AssociateContact[]       @relation("AssociateCreatedBy")
+  staffNotes                   StaffNote[]              @relation("StaffNoteAuthor")
+  disputesOpened               Dispute[]                @relation("DisputeOpenedBy")
+  disputesAssigned             Dispute[]                @relation("DisputeAssignedTo")
+  activityEvents               ActivityEvent[]          @relation("ActivityActor")
+
+  @@index([role, status])
+  @@index([createdAt])
+}
+
+model StaffProfile {
+  id                String                 @id @default(uuid()) @db.Uuid
+  userId            String                 @unique @db.Uuid
+  displayName       String                 @db.VarChar(160)
+  operationalStatus StaffOperationalStatus @default(ACTIVE)
+  createdAt         DateTime               @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime               @updatedAt @db.Timestamptz(3)
+  user              User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model StaffCapabilityGrant {
+  id              String          @id @default(uuid()) @db.Uuid
+  staffUserId     String          @db.Uuid
+  capability      Capability
+  grantedByUserId String          @db.Uuid
+  grantedAt       DateTime        @default(now()) @db.Timestamptz(3)
+  revokedAt       DateTime?       @db.Timestamptz(3)
+  revokedByUserId String?         @db.Uuid
+  reason          String?         @db.VarChar(500)
+  staffUser       User            @relation("CapabilityStaff", fields: [staffUserId], references: [id], onDelete: Cascade)
+  grantedBy       User            @relation("CapabilityGrantedBy", fields: [grantedByUserId], references: [id], onDelete: Restrict)
+  revokedBy       User?           @relation("CapabilityRevokedBy", fields: [revokedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([staffUserId, capability, revokedAt])
+  @@index([grantedAt])
+}
+
+model AuthSession {
+  id                String                  @id @default(uuid()) @db.Uuid
+  familyId          String                  @db.Uuid
+  userId            String                  @db.Uuid
+  tokenHash         String                  @unique @db.Char(64)
+  clientSource      ActivitySource          @default(API)
+  ipHash            String?                 @db.Char(64)
+  userAgentHash     String?                 @db.Char(64)
+  createdAt         DateTime                @default(now()) @db.Timestamptz(3)
+  lastUsedAt        DateTime                @default(now()) @db.Timestamptz(3)
+  expiresAt         DateTime                @db.Timestamptz(3)
+  absoluteExpiresAt DateTime                @db.Timestamptz(3)
+  replayDetectedAt  DateTime?               @db.Timestamptz(3)
+  revokedAt         DateTime?               @db.Timestamptz(3)
+  revocationReason  SessionRevocationReason?
+  replacedById      String?                 @unique @db.Uuid
+  user              User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  replacedBy        AuthSession?            @relation("SessionRotation", fields: [replacedById], references: [id], onDelete: SetNull)
+  replaces          AuthSession?            @relation("SessionRotation")
+
+  @@index([userId, revokedAt, expiresAt])
+  @@index([familyId, revokedAt])
+  @@index([absoluteExpiresAt])
+}
+
+model AuthRateLimit {
+  keyHash         String         @id @db.Char(64)
+  scope           RateLimitScope
+  failureCount    Int            @default(0)
+  windowStartedAt DateTime       @db.Timestamptz(3)
+  blockedUntil    DateTime?      @db.Timestamptz(3)
+  updatedAt       DateTime       @updatedAt @db.Timestamptz(3)
+
+  @@index([blockedUntil])
+  @@index([updatedAt])
+}
+
+model Recipient {
+  id               String            @id @default(uuid()) @db.Uuid
+  ownerSenderId    String            @db.Uuid
+  fullName         String            @db.VarChar(160)
+  country          String            @db.Char(2)
+  phone            String?           @db.VarChar(32)
+  payoutMethod     PayoutMethod
+  payoutDetails    Json
+  address          String?           @db.VarChar(500)
+  createdAt        DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime          @updatedAt @db.Timestamptz(3)
+  ownerSender      User              @relation("RecipientOwner", fields: [ownerSenderId], references: [id], onDelete: Restrict)
+  transferRequests TransferRequest[]
+
+  @@unique([id, ownerSenderId])
+  @@index([ownerSenderId, createdAt])
+}
+
+model TransferRequest {
+  id                    String                 @id @default(uuid()) @db.Uuid
+  reference             String                 @unique @db.VarChar(32)
+  senderId              String                 @db.Uuid
+  recipientId           String                 @db.Uuid
+  originCountry         String                 @db.Char(2)
+  destinationCountry    String                 @db.Char(2)
+  sendAmountMinor       BigInt
+  sendCurrency          String                 @db.Char(3)
+  requestedPayoutMethod PayoutMethod
+  status                TransferStatus         @default(REQUESTED)
+  quoteDueAt            DateTime               @db.Timestamptz(3)
+  senderNote            String?                @db.VarChar(1000)
+  acceptedQuoteId       String?                @unique @db.Uuid
+  createdAt             DateTime               @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime               @updatedAt @db.Timestamptz(3)
+  sender                User                   @relation("TransferSender", fields: [senderId], references: [id], onDelete: Restrict)
+  recipient             Recipient              @relation(fields: [recipientId, senderId], references: [id, ownerSenderId], onDelete: Restrict)
+  acceptedQuote         Quote?                  @relation("AcceptedQuote", fields: [acceptedQuoteId, id], references: [id, transferRequestId], onDelete: Restrict)
+  quotes                Quote[]                 @relation("TransferQuotes")
+  fundingInstructions   FundingInstruction[]
+  fundingProofs         FundingProof[]
+  payoutCase            PayoutCase?
+  confirmations         TransferConfirmation[]
+  staffNotes            StaffNote[]
+  disputes              Dispute[]
+
+  @@index([senderId, createdAt])
+  @@index([status, quoteDueAt])
+  @@index([recipientId])
+  @@unique([id, senderId])
+  @@unique([acceptedQuoteId, id])
+}
+
+model Quote {
+  id                 String          @id @default(uuid()) @db.Uuid
+  transferRequestId  String          @db.Uuid
+  version            Int
+  sendAmountMinor    BigInt
+  sendCurrency       String          @db.Char(3)
+  feeAmountMinor     BigInt
+  feeBreakdown       Json?
+  effectiveRate      Decimal         @db.Decimal(24, 12)
+  receiveAmountMinor BigInt
+  receiveCurrency    String          @db.Char(3)
+  expectedDeliveryAt DateTime        @db.Timestamptz(3)
+  expiresAt          DateTime        @db.Timestamptz(3)
+  status             QuoteStatus     @default(DRAFT)
+  createdByStaffId   String          @db.Uuid
+  senderFacingNote   String?         @db.VarChar(500)
+  internalNote       String?         @db.VarChar(2000)
+  createdAt          DateTime        @default(now()) @db.Timestamptz(3)
+  sentAt             DateTime?       @db.Timestamptz(3)
+  acceptedAt         DateTime?       @db.Timestamptz(3)
+  rejectedAt         DateTime?       @db.Timestamptz(3)
+  transferRequest    TransferRequest @relation("TransferQuotes", fields: [transferRequestId], references: [id], onDelete: Restrict)
+  acceptedByTransfer TransferRequest? @relation("AcceptedQuote")
+  createdByStaff     User            @relation("QuoteCreatedBy", fields: [createdByStaffId], references: [id], onDelete: Restrict)
+  fundingInstruction FundingInstruction?
+
+  @@unique([transferRequestId, version])
+  @@unique([id, transferRequestId])
+  @@index([transferRequestId, status])
+  @@index([status, expiresAt])
+}
+
+model FundingInstruction {
+  id                  String          @id @default(uuid()) @db.Uuid
+  transferRequestId   String          @db.Uuid
+  acceptedQuoteId     String          @unique @db.Uuid
+  method              FundingMethod
+  amountMinor         BigInt
+  currency            String          @db.Char(3)
+  payeeName           String          @db.VarChar(160)
+  provider            String?         @db.VarChar(160)
+  accountReference    String?         @db.VarChar(500)
+  senderReference     String          @db.VarChar(100)
+  instructions        String          @db.VarChar(2000)
+  validUntil          DateTime?       @db.Timestamptz(3)
+  publishedByStaffId  String          @db.Uuid
+  createdAt           DateTime        @default(now()) @db.Timestamptz(3)
+  transferRequest     TransferRequest @relation(fields: [acceptedQuoteId, transferRequestId], references: [acceptedQuoteId, id], onDelete: Restrict, map: "FundingInstruction_transfer_accepted_fkey")
+  acceptedQuote       Quote           @relation(fields: [acceptedQuoteId, transferRequestId], references: [id, transferRequestId], onDelete: Restrict, map: "FundingInstruction_quote_transfer_fkey")
+  publishedByStaff    User            @relation("FundingInstructionPublishedBy", fields: [publishedByStaffId], references: [id], onDelete: Restrict)
+
+  @@index([transferRequestId])
+  @@unique([acceptedQuoteId, transferRequestId])
+}
+
+model FundingProof {
+  id                 String             @id @default(uuid()) @db.Uuid
+  transferRequestId  String             @db.Uuid
+  submittedBySenderId String            @db.Uuid
+  reference          String?            @db.VarChar(200)
+  amountMinor        BigInt?
+  currency           String?            @db.Char(3)
+  transferredAt      DateTime?          @db.Timestamptz(3)
+  storageObjectKey   String?            @unique @db.VarChar(1000)
+  originalFilename   String?            @db.VarChar(255)
+  contentType        String?            @db.VarChar(160)
+  sizeBytes          BigInt?
+  status             EvidenceReviewStatus @default(SUBMITTED)
+  senderNote         String?            @db.VarChar(1000)
+  reviewedByStaffId  String?            @db.Uuid
+  reviewedAt         DateTime?          @db.Timestamptz(3)
+  reviewReason       String?            @db.VarChar(1000)
+  createdAt          DateTime           @default(now()) @db.Timestamptz(3)
+  transferRequest    TransferRequest    @relation(fields: [transferRequestId, submittedBySenderId], references: [id, senderId], onDelete: Restrict)
+  submittedBySender  User               @relation("FundingProofSubmittedBy", fields: [submittedBySenderId], references: [id], onDelete: Restrict)
+  reviewedByStaff    User?              @relation("FundingProofReviewedBy", fields: [reviewedByStaffId], references: [id], onDelete: Restrict)
+
+  @@index([transferRequestId, status])
+  @@index([submittedBySenderId, createdAt])
+}
+
+model AssociateContact {
+  id                 String          @id @default(uuid()) @db.Uuid
+  businessName       String          @db.VarChar(200)
+  countries          String[]
+  cities             String[]
+  payoutMethods      PayoutMethod[]
+  currencies         String[]
+  contactChannels    Json
+  trustNotes         String?         @db.VarChar(2000)
+  status             AssociateStatus @default(ACTIVE)
+  createdByStaffId   String          @db.Uuid
+  createdAt          DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime        @updatedAt @db.Timestamptz(3)
+  createdByStaff     User            @relation("AssociateCreatedBy", fields: [createdByStaffId], references: [id], onDelete: Restrict)
+  payoutCases        PayoutCase[]
+
+  @@index([status])
+}
+
+model PayoutCase {
+  id                    String          @id @default(uuid()) @db.Uuid
+  transferRequestId     String          @unique @db.Uuid
+  staffOwnerId          String          @db.Uuid
+  associateContactId    String?         @db.Uuid
+  amountMinor           BigInt
+  currency              String          @db.Char(3)
+  payoutMethod          PayoutMethod
+  expectedBy            DateTime        @db.Timestamptz(3)
+  status                PayoutCaseStatus @default(PENDING)
+  externalReference     String?         @db.VarChar(300)
+  internalNote          String?         @db.VarChar(2000)
+  senderFacingNote      String?         @db.VarChar(500)
+  completedAt           DateTime?       @db.Timestamptz(3)
+  createdAt             DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime        @updatedAt @db.Timestamptz(3)
+  transferRequest       TransferRequest @relation(fields: [transferRequestId], references: [id], onDelete: Restrict)
+  staffOwner            User            @relation("PayoutCaseOwner", fields: [staffOwnerId], references: [id], onDelete: Restrict)
+  associateContact      AssociateContact? @relation(fields: [associateContactId], references: [id], onDelete: Restrict)
+  evidence              PayoutEvidence[]
+
+  @@index([status, expectedBy])
+  @@index([staffOwnerId, status])
+}
+
+model PayoutEvidence {
+  id               String      @id @default(uuid()) @db.Uuid
+  payoutCaseId     String      @db.Uuid
+  storageObjectKey String?     @unique @db.VarChar(1000)
+  externalReference String?    @db.VarChar(300)
+  originalFilename String?     @db.VarChar(255)
+  contentType      String?     @db.VarChar(160)
+  sizeBytes        BigInt?
+  createdByStaffId String      @db.Uuid
+  createdAt        DateTime    @default(now()) @db.Timestamptz(3)
+  payoutCase       PayoutCase  @relation(fields: [payoutCaseId], references: [id], onDelete: Restrict)
+  createdByStaff   User        @relation("PayoutEvidenceCreatedBy", fields: [createdByStaffId], references: [id], onDelete: Restrict)
+
+  @@index([payoutCaseId, createdAt])
+}
+
+model TransferConfirmation {
+  id                String             @id @default(uuid()) @db.Uuid
+  transferRequestId String             @db.Uuid
+  source            ConfirmationSource
+  actorUserId       String?            @db.Uuid
+  referenceIdentity String?            @db.VarChar(300)
+  note              String?            @db.VarChar(1000)
+  confirmedAt       DateTime           @default(now()) @db.Timestamptz(3)
+  transferRequest   TransferRequest    @relation(fields: [transferRequestId], references: [id], onDelete: Restrict)
+  actorUser         User?              @relation("ConfirmationActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@unique([transferRequestId, source])
+  @@index([confirmedAt])
+}
+
+model StaffNote {
+  id                String          @id @default(uuid()) @db.Uuid
+  transferRequestId String          @db.Uuid
+  authorStaffId     String          @db.Uuid
+  text              String          @db.VarChar(4000)
+  createdAt         DateTime        @default(now()) @db.Timestamptz(3)
+  transferRequest   TransferRequest @relation(fields: [transferRequestId], references: [id], onDelete: Restrict)
+  authorStaff       User            @relation("StaffNoteAuthor", fields: [authorStaffId], references: [id], onDelete: Restrict)
+
+  @@index([transferRequestId, createdAt])
+}
+
+model Dispute {
+  id                String          @id @default(uuid()) @db.Uuid
+  transferRequestId String          @db.Uuid
+  openedByUserId    String          @db.Uuid
+  assignedToStaffId String?         @db.Uuid
+  category          String          @db.VarChar(100)
+  reason            String          @db.VarChar(2000)
+  status            DisputeStatus   @default(OPEN)
+  resolution        String?         @db.VarChar(4000)
+  openedAt          DateTime        @default(now()) @db.Timestamptz(3)
+  resolvedAt        DateTime?       @db.Timestamptz(3)
+  updatedAt         DateTime        @updatedAt @db.Timestamptz(3)
+  transferRequest   TransferRequest @relation(fields: [transferRequestId], references: [id], onDelete: Restrict)
+  openedByUser      User            @relation("DisputeOpenedBy", fields: [openedByUserId], references: [id], onDelete: Restrict)
+  assignedToStaff   User?           @relation("DisputeAssignedTo", fields: [assignedToStaffId], references: [id], onDelete: Restrict)
+
+  @@index([transferRequestId, status])
+  @@index([assignedToStaffId, status])
+}
+
+model ActivityEvent {
+  id            String          @id @default(uuid()) @db.Uuid
+  actorUserId   String?         @db.Uuid
+  actorRole     Role?
+  source        ActivitySource  @default(API)
+  requestId     String          @db.VarChar(100)
+  actionType    String          @db.VarChar(120)
+  outcome       ActivityOutcome
+  entityType    String?         @db.VarChar(120)
+  entityId      String?         @db.VarChar(120)
+  previousState Json?
+  nextState     Json?
+  reason        String?         @db.VarChar(1000)
+  errorCode     String?         @db.VarChar(120)
+  metadata      Json
+  ipHash        String?         @db.Char(64)
+  createdAt     DateTime        @default(now()) @db.Timestamptz(3)
+  actorUser     User?           @relation("ActivityActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([actionType, createdAt])
+  @@index([entityType, entityId, createdAt])
+  @@index([requestId, createdAt])
+}
+
+model AdminConfiguration {
+  id                           String   @id @default(uuid()) @db.Uuid
+  version                      Int      @unique
+  active                       Boolean  @default(false)
+  quoteSlaMinutes              Int
+  quoteDefaultExpiryMinutes    Int
+  supportedOriginCountries     String[]
+  supportedDestinationCountries String[]
+  supportedCurrencies          String[]
+  payoutMethodsByDestination   Json
+  evidenceMaxSizeBytes         BigInt
+  evidenceAllowedContentTypes  String[]
+  createdByAdminId             String   @db.Uuid
+  reason                       String   @db.VarChar(1000)
+  createdAt                    DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([active, version])
+}
+
+enum Role {
+  SENDER
+  STAFF
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum StaffOperationalStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum Capability {
+  TRANSFER_REVIEW
+  QUOTE_MANAGE
+  FUNDING_REVIEW
+  PAYOUT_MANAGE
+  TRANSFER_HOLD
+  DISPUTE_MANAGE
+  REFUND_MANAGE
+  ASSOCIATE_VIEW
+  ASSOCIATE_MANAGE
+  STAFF_MANAGE
+  CONFIG_MANAGE
+  AUDIT_VIEW
+}
+
+enum ActivitySource {
+  API
+  WEB
+  ANDROID
+  SYSTEM
+}
+
+enum ActivityOutcome {
+  SUCCESS
+  FAILURE
+  DENIED
+  INFO
+}
+
+enum RateLimitScope {
+  IP
+  IP_IDENTIFIER
+  IDENTIFIER
+  REGISTRATION_IP
+}
+
+enum SessionRevocationReason {
+  LOGOUT
+  LOGOUT_ALL
+  ROTATED
+  REPLAY_DETECTED
+  USER_INACTIVE
+  ROLE_CHANGED
+  ADMIN_REVOKED
+  EXPIRED
+}
+
+enum PayoutMethod {
+  BANK_TRANSFER
+  CASH_PICKUP
+  MOBILE_MONEY
+  OTHER
+}
+
+enum FundingMethod {
+  BANK_TRANSFER
+  CASH_HANDOFF
+  OTHER
+}
+
+enum TransferStatus {
+  REQUESTED
+  NEEDS_INFO
+  QUOTING
+  QUOTED
+  QUOTE_ACCEPTED
+  FUNDING_PENDING
+  FUNDING_SUBMITTED
+  FUNDS_CONFIRMED
+  PAYOUT_IN_PROGRESS
+  PAYOUT_REPORTED
+  CONFIRMATION_PENDING
+  COMPLETED
+  ON_HOLD
+  DECLINED
+  QUOTE_EXPIRED
+  CANCELLED
+  DISPUTED
+  REFUND_PENDING
+  REFUNDED
+  FAILED
+}
+
+enum QuoteStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  SUPERSEDED
+}
+
+enum EvidenceReviewStatus {
+  SUBMITTED
+  NEEDS_RESUBMISSION
+  VERIFIED
+  REJECTED
+}
+
+enum AssociateStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum PayoutCaseStatus {
+  PENDING
+  IN_PROGRESS
+  REPORTED
+  COMPLETED
+  ON_HOLD
+  FAILED
+}
+
+enum ConfirmationSource {
+  STAFF
+  SENDER
+  RECIPIENT
+}
+
+enum DisputeStatus {
+  OPEN
+  IN_REVIEW
+  RESOLVED
+  REJECTED
+}

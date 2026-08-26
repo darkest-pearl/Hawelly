@@ -12,7 +12,12 @@
     "apps/api",
     "apps/web"
   ],
+  "overrides": {
+    "deepmerge-ts": "8.0.2",
+    "lodash": "4.18.1"
+  },
   "scripts": {
+    "postinstall": "npm run db:generate --workspace @hawelly/api",
     "dev": "concurrently -n api,web -c cyan,green \"npm run dev --workspace @hawelly/api\" \"npm run dev --workspace @hawelly/web\"",
     "dev:api": "npm run dev --workspace @hawelly/api",
     "dev:web": "npm run dev --workspace @hawelly/web",
@@ -20,13 +25,18 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "build": "npm run build --workspaces --if-present",
+    "db:generate": "npm run db:generate --workspace @hawelly/api",
+    "db:validate": "npm run db:validate --workspace @hawelly/api",
+    "db:migrate:deploy": "npm run db:migrate:deploy --workspace @hawelly/api",
     "smoke:health": "npm run smoke:health --workspace @hawelly/api",
     "qa:web:capture": "node scripts/captureWeb.mjs",
-    "check": "npm run lint && npm run typecheck && npm test && npm run build"
+    "check": "npm run db:validate && npm run db:generate && npm run lint && npm run typecheck && npm test && npm run build"
   },
   "devDependencies": {
     "concurrently": "10.0.5",
+    "deepmerge-ts": "8.0.2",
     "eslint": "10.9.1",
+    "lodash": "4.18.1",
     "playwright-core": "1.62.1",
     "typescript-eslint": "8.68.0"
   }
