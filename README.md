@@ -65,6 +65,37 @@ The following XBUX architecture must **not** be ported into Hawelly v1:
 - Financial/audit actions must be explicit, attributable, and historically recoverable.
 - Frontends must not directly access private financial database tables.
 
+## Development
+
+Prerequisites:
+
+- Node.js 22.19.x (see `.nvmrc`)
+- npm 10.x
+
+Install and verify the complete workspace:
+
+```powershell
+npm ci
+npm run check
+npm run smoke:health
+```
+
+Start the API and web application together:
+
+```powershell
+npm run dev
+```
+
+Local endpoints:
+
+- Web: `http://127.0.0.1:3000`
+- API liveness: `http://127.0.0.1:4000/health`
+- API readiness: `http://127.0.0.1:4000/health/ready`
+
+Copy each app's `.env.example` to a local ignored env file only when configuration changes are needed. Every `NEXT_PUBLIC_*` web variable is bundled into browser code and must never contain credentials or private service configuration.
+
+The Android directory is a sender-client placeholder until Milestone 9. No Android SDK is required for the current bootstrap.
+
 ## Status
 
-Repository initialization and product specification phase.
+Milestone 0 repository bootstrap complete. Milestone 1 covers the database foundation and authentication.

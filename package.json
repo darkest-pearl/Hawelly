@@ -1,0 +1,33 @@
+{
+  "name": "hawelly",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Staff-managed cross-border money-transfer coordination platform",
+  "packageManager": "npm@10.9.3",
+  "engines": {
+    "node": ">=22.13.0 <23",
+    "npm": ">=10 <11"
+  },
+  "workspaces": [
+    "apps/api",
+    "apps/web"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,web -c cyan,green \"npm run dev --workspace @hawelly/api\" \"npm run dev --workspace @hawelly/web\"",
+    "dev:api": "npm run dev --workspace @hawelly/api",
+    "dev:web": "npm run dev --workspace @hawelly/web",
+    "lint": "eslint apps/api/src apps/api/scripts apps/web/app --max-warnings=0",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "smoke:health": "npm run smoke:health --workspace @hawelly/api",
+    "qa:web:capture": "node scripts/captureWeb.mjs",
+    "check": "npm run lint && npm run typecheck && npm test && npm run build"
+  },
+  "devDependencies": {
+    "concurrently": "10.0.5",
+    "eslint": "10.9.1",
+    "playwright-core": "1.62.1",
+    "typescript-eslint": "8.68.0"
+  }
+}
