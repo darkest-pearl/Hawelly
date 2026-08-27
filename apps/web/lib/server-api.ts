@@ -159,8 +159,40 @@ export function requestIdHeaders(request: NextRequest) {
   return requestId ? { "X-Request-Id": requestId } : {};
 }
 
+export function expectedWebOrigin(
+  request: NextRequest,
+  environment: NodeJS.ProcessEnv = process.env
+) {
+  if (environment.NODE_ENV === "production") {
+    const value = environment.HAWELLY_WEB_ORIGIN?.trim() || "";
+    if (!value) {
+      throw new Error("HAWELLY_WEB_ORIGIN must be an exact HTTP(S) origin");
+    }
+    const origin = new URL(value);
+    if (
+      !["http:", "https:"].includes(origin.protocol) ||
+      origin.username ||
+      origin.password ||
+      origin.origin !== value
+    ) {
+      throw new Error("HAWELLY_WEB_ORIGIN must be an exact HTTP(S) origin");
+    }
+    return origin.origin;
+  }
+  const host = request.headers.get("host") || request.nextUrl.host;
+  if (!host) throw new Error("Request Host is unavailable");
+  return new URL(`${request.nextUrl.protocol}//${host}`).origin;
+}
+
 export function sameOriginMutation(request: NextRequest) {
-  return hasSameOrigin(request.headers.get("origin"), request.nextUrl.origin);
+  try {
+    return hasSameOrigin(
+      request.headers.get("origin"),
+      expectedWebOrigin(request)
+    );
+  } catch {
+    return false;
+  }
 }
 
 export function safeError(status: number, payload: unknown) {

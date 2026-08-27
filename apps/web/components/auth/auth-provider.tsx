@@ -53,8 +53,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!response.ok || !payload?.user) {
       throw new Error(payload?.error?.message || "Sign in failed");
     }
-    setUser(payload.user);
-    return payload.user;
+    const current = await apiFetch<SessionUser>("/me");
+    setUser(current);
+    return current;
   }, []);
 
   const logout = useCallback(async () => {

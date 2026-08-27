@@ -89,6 +89,11 @@ succeeds, allowing a failed revocation to be retried. The API remains the
 source of truth for role, capability, ownership, validation, and state
 transitions.
 
+Production sets the effective public origin explicitly with
+`HAWELLY_WEB_ORIGIN`; development derives it from the request protocol and
+Host. This avoids trusting ambiguous proxy scheme metadata while preserving
+local same-origin operation.
+
 Login throttling preserves distinct client identities across the BFF boundary.
 In production, `HAWELLY_CLIENT_IP_HEADER` must name one exact client-IP header
 that the trusted ingress overwrites and strips from inbound client requests.

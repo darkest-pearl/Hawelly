@@ -14,8 +14,12 @@ describe("web backend boundary policy", () => {
     [`recipients/${id}`, "PATCH"],
     ["transfers", "POST"],
     [`transfers/${id}/cancel`, "POST"],
+    [`transfers/${id}/quotes`, "GET"],
+    [`transfers/${id}/quotes/${id}/decision`, "POST"],
     ["operations/transfers", "GET"],
-    [`operations/transfers/${id}/review`, "POST"]
+    [`operations/transfers/${id}/review`, "POST"],
+    [`operations/transfers/${id}/quotes`, "POST"],
+    [`operations/transfers/${id}/quotes/${id}/send`, "POST"]
   ])("allows %s %s", (path, method) => {
     expect(isAllowedBackendRequest(path, method)).toBe(true);
   });

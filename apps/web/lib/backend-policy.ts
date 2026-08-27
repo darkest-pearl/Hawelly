@@ -7,9 +7,13 @@ const routeRules = [
   { pattern: /^transfers$/, methods: ["GET", "POST"] },
   { pattern: new RegExp(`^transfers/${UUID_PATTERN.source.slice(1, -1)}$`, "i"), methods: ["GET"] },
   { pattern: new RegExp(`^transfers/${UUID_PATTERN.source.slice(1, -1)}/cancel$`, "i"), methods: ["POST"] },
+  { pattern: new RegExp(`^transfers/${UUID_PATTERN.source.slice(1, -1)}/quotes$`, "i"), methods: ["GET"] },
+  { pattern: new RegExp(`^transfers/${UUID_PATTERN.source.slice(1, -1)}/quotes/${UUID_PATTERN.source.slice(1, -1)}/decision$`, "i"), methods: ["POST"] },
   { pattern: /^operations\/transfers$/, methods: ["GET"] },
   { pattern: new RegExp(`^operations/transfers/${UUID_PATTERN.source.slice(1, -1)}$`, "i"), methods: ["GET"] },
-  { pattern: new RegExp(`^operations/transfers/${UUID_PATTERN.source.slice(1, -1)}/review$`, "i"), methods: ["POST"] }
+  { pattern: new RegExp(`^operations/transfers/${UUID_PATTERN.source.slice(1, -1)}/review$`, "i"), methods: ["POST"] },
+  { pattern: new RegExp(`^operations/transfers/${UUID_PATTERN.source.slice(1, -1)}/quotes$`, "i"), methods: ["GET", "POST"] },
+  { pattern: new RegExp(`^operations/transfers/${UUID_PATTERN.source.slice(1, -1)}/quotes/${UUID_PATTERN.source.slice(1, -1)}/send$`, "i"), methods: ["POST"] }
 ] as const;
 
 export function isAllowedBackendRequest(path: string, method: string) {

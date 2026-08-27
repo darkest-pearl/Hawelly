@@ -827,6 +827,8 @@ textarea:focus-visible {
 
 .auth-panel input,
 .recipient-form input,
+.quote-form input,
+.quote-form textarea,
 .recipient-form select,
 .transfer-request-panel input,
 .transfer-request-panel select,
@@ -916,7 +918,8 @@ select:disabled { background: var(--surface-subtle); color: var(--ink); opacity:
 .transfer-request-summary dd { font-size: 16px; font-weight: 720; margin: 0; }
 
 .transfer-detail-heading { align-items: center; display: flex; justify-content: space-between; }
-.transfer-detail-heading h1 { font-size: clamp(42px, 4vw, 54px); margin: 18px 0 26px; }
+.transfer-detail-heading > div { min-width: 0; }
+.transfer-detail-heading h1 { font-size: clamp(42px, 4vw, 54px); margin: 18px 0 26px; overflow-wrap: anywhere; }
 .sender-transfer-detail { border: 1px solid var(--border); border-radius: 8px; padding: 28px 32px; }
 .detail-summary-grid { display: grid; gap: 26px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0 0 28px; }
 .detail-summary-grid dt { color: var(--muted); font-size: 13px; margin-bottom: 8px; }
@@ -1058,6 +1061,8 @@ select:disabled { background: var(--surface-subtle); color: var(--ink); opacity:
   .transfer-request-summary dl { gap: 7px; }
   .transfer-request-summary dd:not(:last-child) { margin-bottom: 8px; }
   .detail-summary-grid { grid-template-columns: 1fr 1fr; }
+  .transfer-detail-heading { align-items: flex-start; flex-direction: column; gap: 2px; }
+  .transfer-detail-heading h1 { font-size: 40px; line-height: 1.12; margin-bottom: 18px; }
   .active-quote { margin-top: 30px; padding: 24px 20px; }
   .active-quote-heading { gap: 12px; }
   .active-quote-heading h2 { font-size: 34px; }

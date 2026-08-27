@@ -15,6 +15,7 @@ import {
 } from "../generated/prisma/client.js";
 import { resolveTestDatabaseUrl } from "../testSupport/database.js";
 import { TransferWorkflowService } from "./service.js";
+import { QuoteWorkflowService } from "../quotes/service.js";
 
 const databaseUrl = resolveTestDatabaseUrl(process.env.TEST_DATABASE_URL);
 const integrationDescribe = databaseUrl ? describe : describe.skip;
@@ -83,9 +84,15 @@ integrationDescribe("recipient and transfer workflow", () => {
     () => new Date(now),
     () => `HW-20260827-${String(++referenceSequence).padStart(12, "0")}`
   );
+  const quoteWorkflow = new QuoteWorkflowService(
+    database,
+    { defaultExpiryMinutes: 30 },
+    () => new Date(now)
+  );
   const app = createApp(runtimeConfig, {
     authService,
-    transferWorkflowService: workflow
+    transferWorkflowService: workflow,
+    quoteWorkflowService: quoteWorkflow
   });
 
   async function createUser(
@@ -598,5 +605,141 @@ integrationDescribe("recipient and transfer workflow", () => {
       }
     });
     expect(successEvents).toBe(1);
+  });
+
+  it("issues a sender-safe quote and accepts it exactly once with immutable economics", async () => {
+    const sender = await createUser("quote-sender@example.com", Role.SENDER);
+    const other = await createUser("quote-other@example.com", Role.SENDER);
+    const admin = await createUser("quote-admin@example.com", Role.ADMIN);
+    const staff = await createUser("quote-staff@example.com", Role.STAFF);
+    const reviewOnlyStaff = await createUser("quote-review-only@example.com", Role.STAFF);
+    const noCapabilityStaff = await createUser("quote-no-capability@example.com", Role.STAFF);
+    await database.staffCapabilityGrant.createMany({
+      data: [Capability.TRANSFER_REVIEW, Capability.QUOTE_MANAGE].map((capability) => ({
+        staffUserId: staff.id,
+        capability,
+        grantedByUserId: admin.id,
+        reason: "Quote workflow test"
+      }))
+    });
+    await database.staffCapabilityGrant.create({
+      data: {
+        staffUserId: reviewOnlyStaff.id,
+        capability: Capability.TRANSFER_REVIEW,
+        grantedByUserId: admin.id,
+        reason: "Must not authorize quote creation"
+      }
+    });
+    const senderToken = await accessToken(sender.email);
+    const otherToken = await accessToken(other.email);
+    const staffToken = await accessToken(staff.email);
+    const reviewOnlyToken = await accessToken(reviewOnlyStaff.email);
+    const noCapabilityToken = await accessToken(noCapabilityStaff.email);
+    const recipient = await createRecipient(senderToken);
+    const createdTransfer = await createTransfer(senderToken, recipient.body.recipient.id);
+    const transferId = createdTransfer.body.transfer.id as string;
+    expect((await request(app).post(`/operations/transfers/${transferId}/review`).set(authenticated(staffToken)).send({ action: "START_QUOTING" })).status).toBe(200);
+
+    expect((await request(app).post(`/operations/transfers/${transferId}/quotes`).set(authenticated(reviewOnlyToken)).send({})).status).toBe(403);
+    expect((await request(app).post(`/operations/transfers/${transferId}/quotes`).set(authenticated(noCapabilityToken)).send({})).status).toBe(403);
+    const denialEvents = await database.activityEvent.findMany({
+      where: {
+        actionType: "AUTHORIZATION_DENIED",
+        actorUserId: { in: [reviewOnlyStaff.id, noCapabilityStaff.id] }
+      },
+      select: { actorUserId: true, entityId: true }
+    });
+    expect(denialEvents).toEqual(expect.arrayContaining([
+      { actorUserId: reviewOnlyStaff.id, entityId: Capability.QUOTE_MANAGE },
+      { actorUserId: noCapabilityStaff.id, entityId: Capability.TRANSFER_REVIEW }
+    ]));
+
+    const draft = await request(app)
+      .post(`/operations/transfers/${transferId}/quotes`)
+      .set(authenticated(staffToken))
+      .send({
+        sendAmountMinor: "125000",
+        sendCurrency: "AED",
+        feeAmountMinor: "2500",
+        feeBreakdown: { service: "2500" },
+        effectiveRate: "15.125",
+        receiveAmountMinor: "1852813",
+        receiveCurrency: "PHP",
+        expectedDeliveryAt: new Date(now.getTime() + 86_400_000).toISOString(),
+        validForMinutes: 30,
+        senderFacingNote: "Delivery by tomorrow",
+        internalNote: "Internal pricing rationale"
+      });
+    expect(draft.status).toBe(201);
+    const quoteId = draft.body.quote.id as string;
+    expect((await request(app).post(`/operations/transfers/${transferId}/quotes/${quoteId}/send`).set(authenticated(staffToken)).send({})).status).toBe(200);
+
+    const senderQuotes = await request(app)
+      .get(`/transfers/${transferId}/quotes`)
+      .set(authenticated(senderToken));
+    expect(senderQuotes.status).toBe(200);
+    expect(senderQuotes.body.quotes[0]).toMatchObject({
+      id: quoteId,
+      status: "SENT",
+      feeAmountMinor: "2500",
+      receiveCurrency: "PHP",
+      senderFacingNote: "Delivery by tomorrow"
+    });
+    expect(JSON.stringify(senderQuotes.body)).not.toContain("Internal pricing rationale");
+    expect((await request(app).get(`/transfers/${transferId}/quotes`).set(authenticated(otherToken))).status).toBe(404);
+    expect((await request(app).post(`/transfers/${transferId}/quotes/${quoteId}/decision`).set(authenticated(otherToken)).send({ decision: "ACCEPT" })).status).toBe(404);
+
+    const decisions = await Promise.all([
+      request(app).post(`/transfers/${transferId}/quotes/${quoteId}/decision`).set(authenticated(senderToken)).send({ decision: "ACCEPT" }),
+      request(app).post(`/transfers/${transferId}/quotes/${quoteId}/decision`).set(authenticated(senderToken)).send({ decision: "ACCEPT" })
+    ]);
+    expect(decisions.map((response) => response.status).sort()).toEqual([200, 409]);
+    const storedTransfer = await database.transferRequest.findUniqueOrThrow({ where: { id: transferId } });
+    expect(storedTransfer).toMatchObject({ status: TransferStatus.QUOTE_ACCEPTED, acceptedQuoteId: quoteId });
+    await expect(database.quote.update({ where: { id: quoteId }, data: { feeAmountMinor: 1n } })).rejects.toThrow();
+  });
+
+  it("sends a replacement quote without rewriting the prior version and expires stale quotes", async () => {
+    const sender = await createUser("requote-sender@example.com", Role.SENDER);
+    const admin = await createUser("requote-admin@example.com", Role.ADMIN);
+    const staff = await createUser("requote-staff@example.com", Role.STAFF);
+    await database.staffCapabilityGrant.createMany({
+      data: [Capability.TRANSFER_REVIEW, Capability.QUOTE_MANAGE].map((capability) => ({ staffUserId: staff.id, capability, grantedByUserId: admin.id, reason: "Requote test" }))
+    });
+    const senderToken = await accessToken(sender.email);
+    const staffToken = await accessToken(staff.email);
+    const recipient = await createRecipient(senderToken);
+    const transfer = await createTransfer(senderToken, recipient.body.recipient.id);
+    const transferId = transfer.body.transfer.id as string;
+    await request(app).post(`/operations/transfers/${transferId}/review`).set(authenticated(staffToken)).send({ action: "START_QUOTING" });
+
+    const quoteBody = (receiveAmountMinor: string, validForMinutes = 30) => ({
+      sendAmountMinor: "125000",
+      sendCurrency: "AED",
+      feeAmountMinor: "2500",
+      effectiveRate: "15.125",
+      receiveAmountMinor,
+      receiveCurrency: "PHP",
+      expectedDeliveryAt: new Date(now.getTime() + 86_400_000).toISOString(),
+      validForMinutes
+    });
+    const first = await request(app).post(`/operations/transfers/${transferId}/quotes`).set(authenticated(staffToken)).send(quoteBody("1852813"));
+    await request(app).post(`/operations/transfers/${transferId}/quotes/${first.body.quote.id}/send`).set(authenticated(staffToken)).send({});
+    const rejected = await request(app).post(`/transfers/${transferId}/quotes/${first.body.quote.id}/decision`).set(authenticated(senderToken)).send({ decision: "REJECT", reason: "Please improve the rate" });
+    expect(rejected.body.transferStatus).toBe("QUOTING");
+    const second = await request(app).post(`/operations/transfers/${transferId}/quotes`).set(authenticated(staffToken)).send(quoteBody("1860000"));
+    expect(second.body.quote.version).toBe(2);
+    await request(app).post(`/operations/transfers/${transferId}/quotes/${second.body.quote.id}/send`).set(authenticated(staffToken)).send({});
+    const third = await request(app).post(`/operations/transfers/${transferId}/quotes`).set(authenticated(staffToken)).send(quoteBody("1865000", 5));
+    expect(third.body.quote.version).toBe(3);
+    await request(app).post(`/operations/transfers/${transferId}/quotes/${third.body.quote.id}/send`).set(authenticated(staffToken)).send({});
+    const versions = await database.quote.findMany({ where: { transferRequestId: transferId }, orderBy: { version: "asc" } });
+    expect(versions.map((quote) => quote.status)).toEqual(["REJECTED", "SUPERSEDED", "SENT"]);
+
+    now = new Date(now.getTime() + 6 * 60_000);
+    const afterExpiry = await request(app).get(`/transfers/${transferId}/quotes`).set(authenticated(senderToken));
+    expect(afterExpiry.body.quotes[0].status).toBe("EXPIRED");
+    expect((await database.transferRequest.findUniqueOrThrow({ where: { id: transferId } })).status).toBe(TransferStatus.QUOTE_EXPIRED);
+    expect((await request(app).post(`/transfers/${transferId}/quotes/${third.body.quote.id}/decision`).set(authenticated(senderToken)).send({ decision: "ACCEPT" })).status).toBe(409);
   });
 });
