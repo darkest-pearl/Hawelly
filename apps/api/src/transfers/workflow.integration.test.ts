@@ -1,5 +1,8 @@
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createApp } from "../app.js";
 import type { AuthConfig } from "../auth/config.js";
 import { hashPassword } from "../auth/password.js";
@@ -7,6 +10,7 @@ import { AuthService } from "../auth/service.js";
 import { createPrismaClient } from "../db/prisma.js";
 import {
   Capability,
+  FundingMethod,
   PayoutMethod,
   Role,
   StaffOperationalStatus,
@@ -16,6 +20,9 @@ import {
 import { resolveTestDatabaseUrl } from "../testSupport/database.js";
 import { TransferWorkflowService } from "./service.js";
 import { QuoteWorkflowService } from "../quotes/service.js";
+import type { FundingWorkflowConfig } from "../funding/config.js";
+import { FundingWorkflowService } from "../funding/service.js";
+import { LocalEvidenceStorage } from "../funding/storage.js";
 
 const databaseUrl = resolveTestDatabaseUrl(process.env.TEST_DATABASE_URL);
 const integrationDescribe = databaseUrl ? describe : describe.skip;
@@ -89,10 +96,27 @@ integrationDescribe("recipient and transfer workflow", () => {
     { defaultExpiryMinutes: 30 },
     () => new Date(now)
   );
+  const evidenceRoot = join(tmpdir(), `hawelly-funding-workflow-${process.pid}`);
+  const fundingConfig: FundingWorkflowConfig = {
+    storageRoot: evidenceRoot,
+    publicBaseUrl: "http://127.0.0.1:4000",
+    signingSecret: "workflow-evidence-signing-secret-is-at-least-32-bytes",
+    signedUrlTtlSeconds: 300,
+    maximumProofBytes: 8 * 1024 * 1024,
+    allowedContentTypes: ["application/pdf", "image/jpeg", "image/png"]
+  };
+  const evidenceStorage = new LocalEvidenceStorage(evidenceRoot, fundingConfig.maximumProofBytes);
+  const fundingWorkflow = new FundingWorkflowService(
+    database,
+    evidenceStorage,
+    fundingConfig,
+    () => new Date(now)
+  );
   const app = createApp(runtimeConfig, {
     authService,
     transferWorkflowService: workflow,
-    quoteWorkflowService: quoteWorkflow
+    quoteWorkflowService: quoteWorkflow,
+    fundingWorkflowService: fundingWorkflow
   });
 
   async function createUser(
@@ -165,8 +189,33 @@ integrationDescribe("recipient and transfer workflow", () => {
       });
   }
 
+  async function createAcceptedTransfer(senderToken: string, staffToken: string) {
+    const recipient = await createRecipient(senderToken);
+    const transfer = await createTransfer(senderToken, recipient.body.recipient.id);
+    const transferId = transfer.body.transfer.id as string;
+    expect((await request(app).post(`/operations/transfers/${transferId}/review`).set(authenticated(staffToken)).send({ action: "START_QUOTING" })).status).toBe(200);
+    const draft = await request(app)
+      .post(`/operations/transfers/${transferId}/quotes`)
+      .set(authenticated(staffToken))
+      .send({
+        sendAmountMinor: "125000",
+        sendCurrency: "AED",
+        feeAmountMinor: "2500",
+        effectiveRate: "15.125",
+        receiveAmountMinor: "1852813",
+        receiveCurrency: "PHP",
+        expectedDeliveryAt: new Date(now.getTime() + 86_400_000).toISOString(),
+        validForMinutes: 30
+      });
+    expect(draft.status).toBe(201);
+    expect((await request(app).post(`/operations/transfers/${transferId}/quotes/${draft.body.quote.id}/send`).set(authenticated(staffToken)).send({})).status).toBe(200);
+    expect((await request(app).post(`/transfers/${transferId}/quotes/${draft.body.quote.id}/decision`).set(authenticated(senderToken)).send({ decision: "ACCEPT" })).status).toBe(200);
+    return transferId;
+  }
+
   beforeAll(async () => {
     await database.$connect();
+    await fundingWorkflow.initializeStorage();
   });
 
   beforeEach(async () => {
@@ -188,6 +237,7 @@ integrationDescribe("recipient and transfer workflow", () => {
 
   afterAll(async () => {
     await database.$disconnect();
+    await rm(evidenceRoot, { recursive: true, force: true });
   });
 
   it("scopes recipient CRUD to the authenticated sender and rejects mass assignment", async () => {
@@ -741,5 +791,154 @@ integrationDescribe("recipient and transfer workflow", () => {
     expect(afterExpiry.body.quotes[0].status).toBe("EXPIRED");
     expect((await database.transferRequest.findUniqueOrThrow({ where: { id: transferId } })).status).toBe(TransferStatus.QUOTE_EXPIRED);
     expect((await request(app).post(`/transfers/${transferId}/quotes/${third.body.quote.id}/decision`).set(authenticated(senderToken)).send({ decision: "ACCEPT" })).status).toBe(409);
+  });
+
+  it("publishes accepted-quote funding instructions and keeps proof submission distinct from funds confirmation", async () => {
+    const sender = await createUser("funding-sender@example.com", Role.SENDER);
+    const otherSender = await createUser("funding-other@example.com", Role.SENDER);
+    const admin = await createUser("funding-admin@example.com", Role.ADMIN);
+    const staff = await createUser("funding-staff@example.com", Role.STAFF);
+    const unprivilegedStaff = await createUser("funding-unprivileged@example.com", Role.STAFF);
+    await database.staffCapabilityGrant.createMany({
+      data: [Capability.TRANSFER_REVIEW, Capability.QUOTE_MANAGE, Capability.FUNDING_REVIEW].map((capability) => ({
+        staffUserId: staff.id,
+        capability,
+        grantedByUserId: admin.id,
+        reason: "Funding workflow test"
+      }))
+    });
+    const template = await database.fundingInstructionTemplate.create({
+      data: {
+        name: "AED operations account",
+        method: FundingMethod.BANK_TRANSFER,
+        currency: "AED",
+        payeeName: "Hawelly Operations",
+        provider: "Test Bank",
+        accountReference: "AE00 TEST 0000 0000",
+        instructions: "Use the exact sender reference.",
+        createdByStaffId: admin.id
+      }
+    });
+    const senderToken = await accessToken(sender.email);
+    const otherToken = await accessToken(otherSender.email);
+    const staffToken = await accessToken(staff.email);
+    const unprivilegedToken = await accessToken(unprivilegedStaff.email);
+    const transferId = await createAcceptedTransfer(senderToken, staffToken);
+
+    expect((await request(app).post(`/operations/transfers/${transferId}/funding-instruction`).set(authenticated(unprivilegedToken)).send({})).status).toBe(403);
+    const published = await request(app)
+      .post(`/operations/transfers/${transferId}/funding-instruction`)
+      .set(authenticated(staffToken))
+      .send({ templateId: template.id, senderReference: "HW-FUND-001", validUntil: new Date(now.getTime() + 3_600_000).toISOString() });
+    expect(published.status).toBe(201);
+    expect(published.body.instruction).toMatchObject({ amountMinor: "125000", currency: "AED", payeeName: "Hawelly Operations" });
+    expect((await database.transferRequest.findUniqueOrThrow({ where: { id: transferId } })).status).toBe(TransferStatus.FUNDING_PENDING);
+    await expect(database.fundingInstruction.update({ where: { id: published.body.instruction.id }, data: { amountMinor: 1n } })).rejects.toThrow(/funding instruction snapshot is immutable/i);
+
+    expect((await request(app).get(`/transfers/${transferId}/funding`).set(authenticated(otherToken))).status).toBe(404);
+    expect((await request(app).post(`/transfers/${transferId}/funding-proofs`).set(authenticated(otherToken)).send({ reference: "CROSS-SENDER" })).status).toBe(404);
+    const senderFunding = await request(app).get(`/transfers/${transferId}/funding`).set(authenticated(senderToken));
+    expect(senderFunding.body.instruction.senderReference).toBe("HW-FUND-001");
+    expect(JSON.stringify(senderFunding.body)).not.toContain(admin.id);
+    expect(JSON.stringify(senderFunding.body)).not.toContain("storageObjectKey");
+
+    const receipt = Buffer.from("%PDF-1.4\nminimal funding receipt\n%%EOF", "utf8");
+    const submission = await request(app)
+      .post(`/transfers/${transferId}/funding-proofs`)
+      .set(authenticated(senderToken))
+      .send({
+        reference: "BANK-REF-100",
+        amountMinor: "125000",
+        currency: "AED",
+        transferredAt: now.toISOString(),
+        attachment: { filename: "receipt.pdf", contentType: "application/pdf", sizeBytes: receipt.byteLength }
+      });
+    expect(submission.status).toBe(201);
+    expect(submission.body.proof.status).toBe("PENDING_UPLOAD");
+    expect((await database.transferRequest.findUniqueOrThrow({ where: { id: transferId } })).status).toBe(TransferStatus.FUNDING_PENDING);
+    const uploadUrl = new URL(submission.body.upload.url);
+    const invalidUpload = await request(app)
+      .put(`${uploadUrl.pathname}${uploadUrl.search}`)
+      .set("Content-Type", "application/pdf")
+      .send(Buffer.alloc(receipt.byteLength, 0x61));
+    expect(invalidUpload.status).toBe(400);
+    const uploaded = await request(app)
+      .put(`${uploadUrl.pathname}${uploadUrl.search}`)
+      .set("Content-Type", "application/pdf")
+      .send(receipt);
+    expect(uploaded.status).toBe(200);
+    expect(uploaded.body.proof.status).toBe("SUBMITTED");
+    expect((await database.transferRequest.findUniqueOrThrow({ where: { id: transferId } })).status).toBe(TransferStatus.FUNDING_SUBMITTED);
+
+    const proofId = submission.body.proof.id as string;
+    await expect(database.fundingProof.update({ where: { id: proofId }, data: { reference: "tampered" } })).rejects.toThrow(/funding proof snapshot is immutable/i);
+    await expect(database.fundingProof.delete({ where: { id: proofId } })).rejects.toThrow(/history cannot be deleted/i);
+    expect((await request(app).post(`/transfers/${transferId}/funding-proofs/${proofId}/read-url`).set(authenticated(otherToken)).send({})).status).toBe(404);
+    const readGrant = await request(app).post(`/transfers/${transferId}/funding-proofs/${proofId}/read-url`).set(authenticated(senderToken)).send({});
+    expect(readGrant.status).toBe(200);
+    const readUrl = new URL(readGrant.body.url);
+    const downloaded = await request(app).get(`${readUrl.pathname}${readUrl.search}`);
+    expect(downloaded.status).toBe(200);
+    expect(downloaded.headers["cache-control"]).toContain("no-store");
+    expect(downloaded.headers["content-disposition"]).toContain("attachment");
+    expect(Buffer.compare(downloaded.body as Buffer, receipt)).toBe(0);
+    readUrl.searchParams.set("signature", "A".repeat(43));
+    expect((await request(app).get(`${readUrl.pathname}${readUrl.search}`)).status).toBe(403);
+    const expiringReadUrl = new URL(readGrant.body.url);
+    now = new Date(now.getTime() + 6 * 60_000);
+    expect((await request(app).get(`${expiringReadUrl.pathname}${expiringReadUrl.search}`)).status).toBe(410);
+
+    const reviewed = await request(app)
+      .post(`/operations/transfers/${transferId}/funding-proofs/${proofId}/review`)
+      .set(authenticated(staffToken))
+      .send({ decision: "VERIFY", reason: "Matched bank receipt" });
+    expect(reviewed.body).toMatchObject({ proof: { status: "VERIFIED" }, transferStatus: "FUNDING_SUBMITTED" });
+    await expect(database.fundingProof.update({ where: { id: proofId }, data: { status: "REJECTED" } })).rejects.toThrow(/terminal funding proof status is immutable/i);
+    await expect(database.fundingProof.update({ where: { id: proofId }, data: { reviewReason: "rewritten" } })).rejects.toThrow(/funding proof review history is immutable/i);
+    expect((await database.transferRequest.findUniqueOrThrow({ where: { id: transferId } })).status).toBe(TransferStatus.FUNDING_SUBMITTED);
+    expect((await request(app).post(`/operations/transfers/${transferId}/funds-confirmation`).set(authenticated(unprivilegedToken)).send({ proofId, reason: "unauthorized" })).status).toBe(403);
+    const confirmed = await request(app)
+      .post(`/operations/transfers/${transferId}/funds-confirmation`)
+      .set(authenticated(staffToken))
+      .send({ proofId, reason: "Funds visible in Hawelly account" });
+    expect(confirmed.body.transferStatus).toBe("FUNDS_CONFIRMED");
+
+    const actions = await database.activityEvent.findMany({
+      where: { entityId: { in: [transferId, proofId, Capability.FUNDING_REVIEW] } },
+      select: { actionType: true }
+    });
+    expect(actions.map((event) => event.actionType)).toEqual(expect.arrayContaining([
+      "AUTHORIZATION_DENIED",
+      "FUNDING_INSTRUCTIONS_PUBLISHED",
+      "FUNDING_PROOF_SUBMITTED",
+      "FUNDING_PROOF_VERIFIED",
+      "FUNDS_RECEIVED_CONFIRMED"
+    ]));
+    expect((await request(app).get("/health/storage")).status).toBe(200);
+  });
+
+  it("returns a transfer for resubmission or rejection without confirming funds", async () => {
+    const sender = await createUser("resubmit-sender@example.com", Role.SENDER);
+    const admin = await createUser("resubmit-admin@example.com", Role.ADMIN);
+    const staff = await createUser("resubmit-staff@example.com", Role.STAFF);
+    await database.staffCapabilityGrant.createMany({
+      data: [Capability.TRANSFER_REVIEW, Capability.QUOTE_MANAGE, Capability.FUNDING_REVIEW].map((capability) => ({ staffUserId: staff.id, capability, grantedByUserId: admin.id, reason: "Resubmission test" }))
+    });
+    const template = await database.fundingInstructionTemplate.create({
+      data: { name: "Resubmit account", method: FundingMethod.BANK_TRANSFER, currency: "AED", payeeName: "Hawelly", instructions: "Use your reference.", createdByStaffId: admin.id }
+    });
+    const senderToken = await accessToken(sender.email);
+    const staffToken = await accessToken(staff.email);
+    const transferId = await createAcceptedTransfer(senderToken, staffToken);
+    await request(app).post(`/operations/transfers/${transferId}/funding-instruction`).set(authenticated(staffToken)).send({ templateId: template.id, senderReference: "HW-RESUBMIT" });
+
+    const first = await request(app).post(`/transfers/${transferId}/funding-proofs`).set(authenticated(senderToken)).send({ reference: "UNCLEAR-REF" });
+    expect(first.body.proof.status).toBe("SUBMITTED");
+    const resubmit = await request(app).post(`/operations/transfers/${transferId}/funding-proofs/${first.body.proof.id}/review`).set(authenticated(staffToken)).send({ decision: "REQUEST_RESUBMISSION", reason: "Reference cannot be matched" });
+    expect(resubmit.body.transferStatus).toBe("FUNDING_PENDING");
+    const second = await request(app).post(`/transfers/${transferId}/funding-proofs`).set(authenticated(senderToken)).send({ reference: "WRONG-REF" });
+    const rejected = await request(app).post(`/operations/transfers/${transferId}/funding-proofs/${second.body.proof.id}/review`).set(authenticated(staffToken)).send({ decision: "REJECT", reason: "Reference belongs to another payment" });
+    expect(rejected.body.transferStatus).toBe("FUNDING_PENDING");
+    expect((await database.transferRequest.findUniqueOrThrow({ where: { id: transferId } })).status).not.toBe(TransferStatus.FUNDS_CONFIRMED);
   });
 });

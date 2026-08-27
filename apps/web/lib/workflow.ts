@@ -63,6 +63,59 @@ export interface QuoteRecord {
   rejectedAt: string | null;
 }
 
+export interface FundingTemplateRecord {
+  id: string;
+  name: string;
+  method: "BANK_TRANSFER" | "CASH_HANDOFF" | "OTHER";
+  currency: string;
+  payeeName: string;
+  provider: string | null;
+  accountReference: string | null;
+  instructions: string;
+}
+
+export interface FundingInstructionRecord {
+  id: string;
+  transferRequestId: string;
+  acceptedQuoteId: string;
+  method: FundingTemplateRecord["method"];
+  amountMinor: string;
+  currency: string;
+  payeeName: string;
+  provider: string | null;
+  accountReference: string | null;
+  senderReference: string;
+  instructions: string;
+  validUntil: string | null;
+  createdAt: string;
+}
+
+export interface FundingProofRecord {
+  id: string;
+  transferRequestId: string;
+  reference: string | null;
+  amountMinor: string | null;
+  currency: string | null;
+  transferredAt: string | null;
+  hasAttachment: boolean;
+  originalFilename: string | null;
+  contentType: string | null;
+  sizeBytes: string | null;
+  uploadExpiresAt: string | null;
+  uploadedAt: string | null;
+  status: "PENDING_UPLOAD" | "SUBMITTED" | "NEEDS_RESUBMISSION" | "VERIFIED" | "REJECTED";
+  senderNote: string | null;
+  reviewedAt: string | null;
+  reviewReason: string | null;
+  createdAt: string;
+}
+
+export interface FundingState {
+  transferStatus: string;
+  instruction: FundingInstructionRecord | null;
+  proofs: FundingProofRecord[];
+}
+
 export const payoutMethodLabels: Record<PayoutMethod, string> = {
   BANK_TRANSFER: "Bank transfer",
   CASH_PICKUP: "Cash pickup",
@@ -97,6 +150,13 @@ export function transferStatus(status: string): {
     QUOTING: "Quote in progress",
     QUOTED: "Quote ready",
     QUOTE_ACCEPTED: "Quote accepted",
+    FUNDING_PENDING: "Funding needed",
+    FUNDING_SUBMITTED: "Funding under review",
+    FUNDS_CONFIRMED: "Funds confirmed",
+    SUBMITTED: "Funding proof submitted",
+    NEEDS_RESUBMISSION: "Funding proof needs resubmission",
+    VERIFIED: "Funding proof verified",
+    REJECTED: "Funding proof rejected",
     QUOTE_EXPIRED: "Quote expired",
     DECLINED: "Declined",
     CANCELLED: "Cancelled"

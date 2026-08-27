@@ -16,10 +16,19 @@ describe("web backend boundary policy", () => {
     [`transfers/${id}/cancel`, "POST"],
     [`transfers/${id}/quotes`, "GET"],
     [`transfers/${id}/quotes/${id}/decision`, "POST"],
+    [`transfers/${id}/funding`, "GET"],
+    [`transfers/${id}/funding-proofs`, "POST"],
+    [`transfers/${id}/funding-proofs/${id}/read-url`, "POST"],
     ["operations/transfers", "GET"],
+    ["operations/funding-templates", "GET"],
     [`operations/transfers/${id}/review`, "POST"],
     [`operations/transfers/${id}/quotes`, "POST"],
-    [`operations/transfers/${id}/quotes/${id}/send`, "POST"]
+    [`operations/transfers/${id}/quotes/${id}/send`, "POST"],
+    [`operations/transfers/${id}/funding`, "GET"],
+    [`operations/transfers/${id}/funding-instruction`, "POST"],
+    [`operations/transfers/${id}/funding-proofs/${id}/read-url`, "POST"],
+    [`operations/transfers/${id}/funding-proofs/${id}/review`, "POST"],
+    [`operations/transfers/${id}/funds-confirmation`, "POST"]
   ])("allows %s %s", (path, method) => {
     expect(isAllowedBackendRequest(path, method)).toBe(true);
   });

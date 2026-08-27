@@ -117,8 +117,10 @@ The Android directory is a sender-client placeholder until Milestone 9. No Andro
 
 ## Status
 
-Milestones 0 through 4 are complete. The working product now includes
+Milestones 0 through 5 are complete. The working product now includes
 sender-scoped recipient management, transfer requests, sender timelines, and
 the staff new-request review queue, plus versioned staff quotes and sender
-acceptance/rejection. Milestone 5 adds funding instructions and sender funding
-proof.
+acceptance/rejection. Staff can now publish accepted-quote-derived funding
+instructions, senders can submit a reference or private receipt, and authorized
+staff can review proof and separately confirm funds received. Milestone 6 adds
+managed payout operations.
