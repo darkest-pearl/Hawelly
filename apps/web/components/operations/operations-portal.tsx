@@ -16,6 +16,7 @@ import { Dialog } from "../ui/dialog";
 import { Icon } from "../ui/icon";
 import { StatusBadge } from "../ui/status-badge";
 import { QuoteDialog } from "./quote-dialog";
+import { FundingActions } from "./funding-actions";
 
 type OperationsRole = "staff" | "admin";
 
@@ -204,10 +205,10 @@ export function OperationsPortal({ role }: { role: OperationsRole }) {
         </header>
         <div className="operations-topbar"><h1>Transfer operations</h1><label className="search-field"><span className="sr-only">Search reference or sender</span><Icon name="search" /><input onChange={(event) => setQuery(event.target.value)} placeholder="Search reference or sender" type="search" value={query} /></label></div>
         <div className="operations-content">
-          <section className="metric-strip metric-strip-single" aria-label="Transfer queue summary"><div className="metric metric-info"><Icon name="transfers" /><span><small>Open quote work</small><strong>{transfers.length}</strong></span></div></section>
+          <section className="metric-strip metric-strip-single" aria-label="Transfer queue summary"><div className="metric metric-info"><Icon name="transfers" /><span><small>Open transfer work</small><strong>{transfers.length}</strong></span></div></section>
           {error ? <p className="page-error" role="alert">{error}</p> : null}
           <section className="transfer-queue" id="transfers" aria-labelledby="new-requests-title">
-            <h2 id="new-requests-title">Requests and quotes</h2>
+            <h2 id="new-requests-title">Requests, quotes, and funding</h2>
             <div className="operations-table-wrap">
               <table className="operations-table">
                 <thead><tr><th>Reference</th><th>Sender</th><th>Recipient</th><th>Route</th><th>Amount</th><th>Status</th><th>Quote due</th><th><span className="sr-only">Actions</span></th></tr></thead>
@@ -235,6 +236,7 @@ export function OperationsPortal({ role }: { role: OperationsRole }) {
           <dl className="detail-list"><div><dt>Sender</dt><dd>{selected.sender.fullName}</dd></div><div><dt>Recipient</dt><dd>{typeof selected.recipient.fullName === "string" ? selected.recipient.fullName : selected.recipientName}</dd></div><div><dt>Route</dt><dd>{selected.originCountry} → {selected.destinationCountry}</dd></div><div><dt>Amount</dt><dd>{formatMinorAmount(selected.sendAmountMinor, selected.sendCurrency)}</dd></div><div><dt>Payout</dt><dd>{payoutMethodLabels[selected.requestedPayoutMethod]}</dd></div><div><dt>Quote due</dt><dd>{new Date(selected.quoteDueAt).toLocaleString()}</dd></div>{selected.senderNote ? <div className="detail-divider"><dt>Sender note</dt><dd>{selected.senderNote}</dd></div> : null}</dl>
           {selected.status === "REQUESTED" || selected.status === "NEEDS_INFO" ? <div className="detail-actions"><h3>Request review</h3><Button disabled={acting} fullWidth onClick={() => void applyReview("START_QUOTING")}>Start quote</Button><Button disabled={acting} fullWidth onClick={() => { setReason(""); setReasonAction("REQUEST_INFO"); }} variant="outline">Request information</Button><Button disabled={acting} fullWidth onClick={() => { setReason(""); setReasonAction("DECLINE"); }} variant="ghost">Decline request</Button></div> : null}
           {user?.capabilities?.includes("QUOTE_MANAGE") && ["QUOTING", "QUOTED"].includes(selected.status) ? <div className="detail-actions"><h3>{selected.status === "QUOTED" ? "Active quote" : "Quote preparation"}</h3>{latestQuote ? <p className="detail-note">Version {latestQuote.version} Â· {latestQuote.status} Â· Recipient gets {formatMinorAmount(latestQuote.receiveAmountMinor, latestQuote.receiveCurrency)}</p> : null}{latestQuote?.status === "DRAFT" ? <Button disabled={acting} fullWidth onClick={() => void sendExistingDraft(latestQuote)}>{acting ? "Sendingâ€¦" : "Send draft quote"}</Button> : <Button disabled={acting} fullWidth onClick={() => setQuoteOpen(true)}>{selected.status === "QUOTED" ? "Prepare replacement quote" : "Prepare quote"}</Button>}</div> : null}
+          {user?.capabilities?.includes("FUNDING_REVIEW") && ["QUOTE_ACCEPTED", "FUNDING_PENDING", "FUNDING_SUBMITTED", "FUNDS_CONFIRMED"].includes(selected.status) ? <FundingActions onStatus={(status) => { setSelected((current) => current ? { ...current, status } : current); setTransfers((current) => current.map((transfer) => transfer.id === selected.id ? { ...transfer, status } : transfer)); }} transfer={selected} /> : null}
         </aside>
       ) : null}
 

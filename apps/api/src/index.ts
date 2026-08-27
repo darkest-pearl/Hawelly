@@ -8,6 +8,9 @@ import { resolveTransferWorkflowConfig } from "./transfers/config.js";
 import { TransferWorkflowService } from "./transfers/service.js";
 import { resolveQuoteWorkflowConfig } from "./quotes/config.js";
 import { QuoteWorkflowService } from "./quotes/service.js";
+import { resolveFundingWorkflowConfig } from "./funding/config.js";
+import { FundingWorkflowService } from "./funding/service.js";
+import { LocalEvidenceStorage } from "./funding/storage.js";
 
 const config = resolveRuntimeConfig();
 const database = createPrismaClient(validateDatabaseUrl(process.env.DATABASE_URL));
@@ -20,10 +23,22 @@ const quoteWorkflowService = new QuoteWorkflowService(
   database,
   resolveQuoteWorkflowConfig()
 );
+const fundingConfig = resolveFundingWorkflowConfig();
+const evidenceStorage = new LocalEvidenceStorage(
+  fundingConfig.storageRoot,
+  fundingConfig.maximumProofBytes
+);
+const fundingWorkflowService = new FundingWorkflowService(
+  database,
+  evidenceStorage,
+  fundingConfig
+);
+await fundingWorkflowService.initializeStorage();
 const app = createApp(config, {
   authService,
   transferWorkflowService,
   quoteWorkflowService,
+  fundingWorkflowService,
   readinessCheck: async () => {
     await database.$queryRaw`SELECT 1`;
   }

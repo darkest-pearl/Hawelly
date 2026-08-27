@@ -518,6 +518,39 @@ textarea:focus-visible {
   margin-top: -49px;
 }
 
+.funding-panel {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-top: 28px;
+  padding: 28px 32px 30px;
+}
+.funding-instructions { display: grid; gap: 18px 28px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 28px 0 0; }
+.funding-instructions dt,
+.compact-funding dt { color: var(--muted); font-size: 13px; margin-bottom: 6px; }
+.funding-instructions dd,
+.compact-funding dd { font-weight: 680; margin: 0; overflow-wrap: anywhere; }
+.funding-guidance { background: var(--surface-subtle); border-radius: 6px; line-height: 1.55; margin: 24px 0 0; padding: 16px 18px; }
+.success-note { color: var(--success); font-weight: 700; }
+.funding-proof-form { border-top: 1px solid var(--border); display: grid; gap: 16px; margin-top: 26px; padding-top: 24px; }
+.funding-proof-form h3,
+.funding-proof-history h3 { margin: 0; }
+.funding-proof-form p { color: var(--muted); margin: -6px 0 0; }
+.funding-proof-form label,
+.funding-publish-form label,
+.funding-review-form label { display: grid; font-size: 13px; font-weight: 650; gap: 8px; }
+.funding-proof-form input,
+.funding-proof-form textarea,
+.funding-publish-form input,
+.funding-publish-form select,
+.funding-review-form textarea { background: #fff; border: 1px solid var(--border-strong); border-radius: 5px; color: var(--ink); min-height: 44px; padding: 10px 12px; width: 100%; }
+.funding-proof-form textarea,
+.funding-review-form textarea { line-height: 1.45; resize: vertical; }
+.funding-proof-history { border-top: 1px solid var(--border); display: grid; gap: 12px; margin-top: 26px; padding-top: 24px; }
+.funding-proof-history article { align-items: center; background: var(--surface-subtle); border-radius: 6px; display: flex; gap: 16px; justify-content: space-between; padding: 14px 16px; }
+.funding-proof-history article div { display: grid; gap: 4px; }
+.funding-proof-history article span { color: var(--muted); font-size: 13px; text-transform: capitalize; }
+.funding-proof-history article p { flex: 1; margin: 0; }
+
 .sender-progress {
   border-top: 1px solid var(--border);
   display: grid;
@@ -760,6 +793,15 @@ textarea:focus-visible {
 .detail-list .detail-divider { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 20px; }
 .detail-actions { border-top: 1px solid var(--border); display: grid; gap: 12px; margin-top: 20px; padding-top: 18px; }
 .detail-actions h3 { font-size: 15px; margin: 0 0 2px; }
+.funding-publish-form,
+.funding-review-form { display: grid; gap: 12px; }
+.compact-funding { background: var(--surface-subtle); border-radius: 6px; display: grid; gap: 10px; margin: 0; padding: 14px; }
+.compact-funding div { display: flex; gap: 12px; justify-content: space-between; }
+.compact-funding dt { margin: 0; }
+.compact-funding dd { text-align: right; }
+.funding-review-card { border: 1px solid var(--border); border-radius: 6px; display: grid; gap: 10px; padding: 14px; }
+.funding-review-card > span { color: var(--muted); font-size: 13px; }
+.review-button-grid { display: grid; gap: 8px; grid-template-columns: 1fr; }
 
 /* Dialog */
 
@@ -1066,6 +1108,10 @@ select:disabled { background: var(--surface-subtle); color: var(--ink); opacity:
   .active-quote { margin-top: 30px; padding: 24px 20px; }
   .active-quote-heading { gap: 12px; }
   .active-quote-heading h2 { font-size: 34px; }
+  .funding-panel { margin-top: 30px; padding: 24px 20px; }
+  .funding-instructions { grid-template-columns: 1fr; }
+  .funding-proof-history article { align-items: stretch; flex-direction: column; }
+  .funding-proof-history article .button { width: 100%; }
   .quote-economics { gap: 24px 18px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 30px; }
   .quote-economics dd { font-size: 23px; white-space: normal; }
   .quote-actions { display: grid; justify-content: stretch; margin-top: 28px; }

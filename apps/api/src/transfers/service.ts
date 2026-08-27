@@ -31,7 +31,13 @@ const SENDER_TIMELINE_ACTIONS = [
   "QUOTE_READY",
   "QUOTE_ACCEPTED",
   "QUOTE_REJECTED",
-  "QUOTE_EXPIRED"
+  "QUOTE_EXPIRED",
+  "FUNDING_INSTRUCTIONS_PUBLISHED",
+  "FUNDING_PROOF_SUBMITTED",
+  "FUNDING_PROOF_RESUBMISSION_REQUESTED",
+  "FUNDING_PROOF_REJECTED",
+  "FUNDING_PROOF_VERIFIED",
+  "FUNDS_RECEIVED_CONFIRMED"
 ] as const;
 
 type Clock = () => Date;
@@ -585,7 +591,9 @@ export class TransferWorkflowService {
           event.actionType === "TRANSFER_REQUEST_INFO_NEEDED" ||
           event.actionType === "TRANSFER_REQUEST_DECLINED" ||
           event.actionType === "TRANSFER_REQUEST_CANCELLED" ||
-          event.actionType === "QUOTE_REJECTED"
+          event.actionType === "QUOTE_REJECTED" ||
+          event.actionType === "FUNDING_PROOF_RESUBMISSION_REQUESTED" ||
+          event.actionType === "FUNDING_PROOF_REJECTED"
             ? event.reason
             : null,
         occurredAt: event.createdAt.toISOString()
@@ -695,7 +703,11 @@ export class TransferWorkflowService {
             TransferStatus.REQUESTED,
             TransferStatus.NEEDS_INFO,
             TransferStatus.QUOTING,
-            TransferStatus.QUOTED
+            TransferStatus.QUOTED,
+            TransferStatus.QUOTE_ACCEPTED,
+            TransferStatus.FUNDING_PENDING,
+            TransferStatus.FUNDING_SUBMITTED,
+            TransferStatus.FUNDS_CONFIRMED
           ]
         }
       },

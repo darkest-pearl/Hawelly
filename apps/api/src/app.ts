@@ -19,11 +19,18 @@ import {
 import type { TransferWorkflowService } from "./transfers/service.js";
 import { createOperationsQuotesRouter, createSenderQuotesRouter } from "./quotes/router.js";
 import type { QuoteWorkflowService } from "./quotes/service.js";
+import {
+  createEvidenceRouter,
+  createOperationsFundingRouter,
+  createSenderFundingRouter
+} from "./funding/router.js";
+import type { FundingWorkflowService } from "./funding/service.js";
 
 export interface AppDependencies {
   authService?: AuthService;
   transferWorkflowService?: TransferWorkflowService;
   quoteWorkflowService?: QuoteWorkflowService;
+  fundingWorkflowService?: FundingWorkflowService;
   readinessCheck?: () => Promise<void>;
 }
 
@@ -86,6 +93,22 @@ export function createApp(
     }
   });
 
+  app.get("/health/storage", async (_request, response) => {
+    try {
+      if (!dependencies.fundingWorkflowService) throw new Error("Storage is unavailable");
+      await dependencies.fundingWorkflowService.storageHealthcheck();
+      response.set("Cache-Control", "no-store");
+      response.json({ ok: true, service: "hawelly-api", storage: "ready" });
+    } catch {
+      response.set("Cache-Control", "no-store");
+      response.status(503).json({ ok: false, service: "hawelly-api", storage: "unavailable" });
+    }
+  });
+
+  if (dependencies.fundingWorkflowService) {
+    app.use("/evidence", createEvidenceRouter(dependencies.fundingWorkflowService));
+  }
+
   if (dependencies.authService) {
     app.use("/auth", createAuthRouter(dependencies.authService));
     app.get("/me", ...createMeHandler(dependencies.authService));
@@ -97,6 +120,22 @@ export function createApp(
           dependencies.transferWorkflowService
         )
       );
+      if (dependencies.fundingWorkflowService) {
+        app.use(
+          "/transfers",
+          createSenderFundingRouter(
+            dependencies.authService,
+            dependencies.fundingWorkflowService
+          )
+        );
+        app.use(
+          "/operations",
+          createOperationsFundingRouter(
+            dependencies.authService,
+            dependencies.fundingWorkflowService
+          )
+        );
+      }
       app.use(
         "/transfers",
         createTransfersRouter(

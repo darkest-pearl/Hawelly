@@ -28,6 +28,7 @@ model User {
   recipients                   Recipient[]              @relation("RecipientOwner")
   transfers                    TransferRequest[]        @relation("TransferSender")
   quotesCreated                Quote[]                  @relation("QuoteCreatedBy")
+  fundingTemplatesCreated      FundingInstructionTemplate[] @relation("FundingTemplateCreatedBy")
   fundingInstructionsPublished FundingInstruction[]     @relation("FundingInstructionPublishedBy")
   fundingProofsSubmitted       FundingProof[]           @relation("FundingProofSubmittedBy")
   fundingProofsReviewed        FundingProof[]           @relation("FundingProofReviewedBy")
@@ -197,6 +198,7 @@ model FundingInstruction {
   id                  String          @id @default(uuid()) @db.Uuid
   transferRequestId   String          @db.Uuid
   acceptedQuoteId     String          @unique @db.Uuid
+  templateId          String?         @db.Uuid
   method              FundingMethod
   amountMinor         BigInt
   currency            String          @db.Char(3)
@@ -210,10 +212,31 @@ model FundingInstruction {
   createdAt           DateTime        @default(now()) @db.Timestamptz(3)
   transferRequest     TransferRequest @relation(fields: [acceptedQuoteId, transferRequestId], references: [acceptedQuoteId, id], onDelete: Restrict, map: "FundingInstruction_transfer_accepted_fkey")
   acceptedQuote       Quote           @relation(fields: [acceptedQuoteId, transferRequestId], references: [id, transferRequestId], onDelete: Restrict, map: "FundingInstruction_quote_transfer_fkey")
+  template            FundingInstructionTemplate? @relation(fields: [templateId], references: [id], onDelete: Restrict)
   publishedByStaff    User            @relation("FundingInstructionPublishedBy", fields: [publishedByStaffId], references: [id], onDelete: Restrict)
 
   @@index([transferRequestId])
+  @@index([templateId])
   @@unique([acceptedQuoteId, transferRequestId])
+}
+
+model FundingInstructionTemplate {
+  id                    String               @id @default(uuid()) @db.Uuid
+  name                  String               @db.VarChar(120)
+  method                FundingMethod
+  currency              String               @db.Char(3)
+  payeeName             String               @db.VarChar(160)
+  provider              String?              @db.VarChar(160)
+  accountReference      String?              @db.VarChar(500)
+  instructions          String               @db.VarChar(2000)
+  active                Boolean              @default(true)
+  createdByStaffId      String               @db.Uuid
+  createdAt             DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime             @updatedAt @db.Timestamptz(3)
+  createdByStaff        User                 @relation("FundingTemplateCreatedBy", fields: [createdByStaffId], references: [id], onDelete: Restrict)
+  fundingInstructions   FundingInstruction[]
+
+  @@index([active, currency, method])
 }
 
 model FundingProof {
@@ -228,7 +251,9 @@ model FundingProof {
   originalFilename   String?            @db.VarChar(255)
   contentType        String?            @db.VarChar(160)
   sizeBytes          BigInt?
-  status             EvidenceReviewStatus @default(SUBMITTED)
+  uploadExpiresAt    DateTime?          @db.Timestamptz(3)
+  uploadedAt         DateTime?          @db.Timestamptz(3)
+  status             EvidenceReviewStatus @default(PENDING_UPLOAD)
   senderNote         String?            @db.VarChar(1000)
   reviewedByStaffId  String?            @db.Uuid
   reviewedAt         DateTime?          @db.Timestamptz(3)
@@ -504,6 +529,7 @@ enum QuoteStatus {
 }
 
 enum EvidenceReviewStatus {
+  PENDING_UPLOAD
   SUBMITTED
   NEEDS_RESUBMISSION
   VERIFIED
