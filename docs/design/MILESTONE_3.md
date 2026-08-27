@@ -67,6 +67,29 @@ and cannot rewrite operational history.
 the creation transaction. Tests inject both clock and configuration so the
 deadline is deterministic.
 
+The beta default is 45 minutes, remaining below the product requirement of one
+hour. `QUOTE_SLA_MINUTES` can override it only with a validated integer from 1
+through 1440.
+
+## Web application boundary
+
+The Next.js application acts as a narrow backend-for-frontend. Login and token
+refresh responses are validated on the server, then stored in `HttpOnly`,
+`SameSite=Strict` cookies. Access cookies are scoped to `/api/backend`; refresh
+cookies are scoped to `/api/auth`. Browser JavaScript receives only the safe
+user projection and never receives either token.
+
+The authenticated proxy has an exact method-and-path allowlist for the
+Milestone 3 routes. Mutations require an HTTP(S) `Origin` whose host exactly
+matches the request `Host`, upstream calls have a ten-second timeout, and all
+authenticated financial responses are `no-store`. The API remains the source
+of truth for role, capability, ownership, validation, and state transitions.
+
+The sender experience uses the real recipient, transfer, timeline, and cancel
+APIs. The staff experience uses the redacted new-request queue and authorized
+review actions. Static Milestone 2 fixtures are retained only by regression
+tests and are not part of these runtime flows.
+
 ## State and audit contract
 
 Every status change goes through the transfer domain module. Routes and
@@ -113,3 +136,18 @@ path, web interaction and responsive-browser checks, Prisma validation and
 migration reconstruction, lint/typecheck/tests/build, dependency audit and
 integrity checks, a proportional security diff review, artifact hygiene, and a
 clean checkpoint merged into `main`.
+
+## Visual contract and verified workflow
+
+The accepted implementation reference is
+`docs/design/milestone-3-transfer-request-concept.png`. It fixes the sender
+surface to true white, navy text, teal actions, a restrained bordered form, a
+separate request-summary rail, and a single-column 390px continuation.
+
+Rendered QA exercises the complete workflow: sender sign-in, recipient
+creation, AED transfer request, sender timeline, staff queue/detail, staff
+request-for-information, and the sender-visible status/reason. Desktop was
+checked at 1512px and 1440px, mobile at 390px. The final render has no horizontal
+overflow, framework overlay, unexpected console warning/error, or inert primary
+control. The mobile heading, summary density, and long-reference wrapping were
+corrected during the comparison pass.

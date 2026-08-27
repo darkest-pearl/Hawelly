@@ -41,7 +41,7 @@ const DEFAULT_CORRIDORS: readonly TransferCorridor[] = [
 ];
 
 function parseQuoteSlaMinutes(value: string | undefined) {
-  if (!value?.trim()) return 60;
+  if (!value?.trim()) return 45;
   if (!/^\d+$/.test(value.trim())) {
     throw new Error("QUOTE_SLA_MINUTES must be an integer between 1 and 1440");
   }
@@ -87,4 +87,3 @@ export function resolveTransferWorkflowConfig(
     corridors: parseCorridors(environment.TRANSFER_CORRIDORS_JSON)
   };
 }
-

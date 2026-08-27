@@ -3,9 +3,9 @@ import { PayoutMethod } from "../generated/prisma/enums.js";
 import { resolveTransferWorkflowConfig } from "./config.js";
 
 describe("transfer workflow configuration", () => {
-  it("provides the explicit beta corridor and one-hour quote SLA", () => {
+  it("provides the explicit beta corridor and 45-minute quote SLA", () => {
     expect(resolveTransferWorkflowConfig({})).toEqual({
-      quoteSlaMinutes: 60,
+      quoteSlaMinutes: 45,
       corridors: [
         {
           originCountry: "AE",
@@ -82,4 +82,3 @@ describe("transfer workflow configuration", () => {
     ).toThrow("duplicate corridor");
   });
 });
-

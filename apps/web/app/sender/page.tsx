@@ -1,5 +1,6 @@
-import { SenderPortal } from "../../components/sender/sender-portal";
+import { LoginGate } from "../../components/auth/login-gate";
+import { SenderDashboard } from "../../components/sender/sender-dashboard";
 
 export default function SenderPage() {
-  return <SenderPortal />;
+  return <LoginGate role="SENDER"><SenderDashboard /></LoginGate>;
 }
