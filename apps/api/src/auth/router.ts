@@ -1,7 +1,8 @@
-import { Router, type NextFunction, type Request, type Response } from "express";
+import { Router, type Response } from "express";
 import { z } from "zod";
 import type { ContextRequest } from "../middleware/requestContext.js";
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
+import { asyncHandler, contextFrom, noStore } from "../http/router.js";
 import { PublicAuthError, type AuthService } from "./service.js";
 
 const registrationSchema = z
@@ -21,24 +22,6 @@ const loginSchema = z
 
 const refreshSchema = z.object({ refreshToken: z.string().max(512) }).strict();
 const logoutSchema = z.object({ refreshToken: z.string().max(512).optional() }).strict();
-
-function contextFrom(request: ContextRequest) {
-  if (!request.requestContext) throw new Error("Request context is unavailable");
-  return request.requestContext;
-}
-
-function noStore(response: Response) {
-  response.set("Cache-Control", "no-store");
-  response.set("Pragma", "no-cache");
-}
-
-function asyncHandler(
-  handler: (request: Request, response: Response, next: NextFunction) => Promise<void>
-) {
-  return (request: Request, response: Response, next: NextFunction) => {
-    handler(request, response, next).catch(next);
-  };
-}
 
 export function createAuthRouter(authService: AuthService) {
   const router = Router();

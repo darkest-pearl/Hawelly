@@ -136,6 +136,7 @@ model TransferRequest {
   sendAmountMinor       BigInt
   sendCurrency          String                 @db.Char(3)
   requestedPayoutMethod PayoutMethod
+  recipientSnapshot     Json
   status                TransferStatus         @default(REQUESTED)
   quoteDueAt            DateTime               @db.Timestamptz(3)
   senderNote            String?                @db.VarChar(1000)

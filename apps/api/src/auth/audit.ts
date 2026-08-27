@@ -47,7 +47,9 @@ export interface ActivityInput {
   outcome: ActivityOutcome;
   entityType?: string | null;
   entityId?: string | null;
-  reason?: string | null;
+  previousState?: Record<string, unknown> | null | undefined;
+  nextState?: Record<string, unknown> | null | undefined;
+  reason?: string | null | undefined;
   errorCode?: string | null;
   metadata?: Record<string, unknown>;
   ipHash?: string | null;
@@ -64,6 +66,18 @@ export function writeActivity(database: AuditDatabase, input: ActivityInput) {
       outcome: input.outcome,
       entityType: input.entityType?.slice(0, 120) ?? null,
       entityId: input.entityId?.slice(0, 120) ?? null,
+      ...(input.previousState
+        ? {
+            previousState: sanitizeAuditValue(
+              input.previousState
+            ) as Prisma.InputJsonObject
+          }
+        : {}),
+      ...(input.nextState
+        ? {
+            nextState: sanitizeAuditValue(input.nextState) as Prisma.InputJsonObject
+          }
+        : {}),
       reason: input.reason?.slice(0, 1_000) ?? null,
       errorCode: input.errorCode?.slice(0, 120) ?? null,
       metadata: sanitizeAuditValue(input.metadata || {}) as Prisma.InputJsonObject,

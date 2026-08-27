@@ -10,9 +10,17 @@ import {
   type RuntimeConfig
 } from "./config.js";
 import { requestContextMiddleware } from "./middleware/requestContext.js";
+import { apiErrorResponse } from "./http/errors.js";
+import {
+  createOperationsTransfersRouter,
+  createRecipientsRouter,
+  createTransfersRouter
+} from "./transfers/router.js";
+import type { TransferWorkflowService } from "./transfers/service.js";
 
 export interface AppDependencies {
   authService?: AuthService;
+  transferWorkflowService?: TransferWorkflowService;
   readinessCheck?: () => Promise<void>;
 }
 
@@ -28,6 +36,7 @@ const errorHandler: ErrorRequestHandler = (
 ) => {
   void _next;
   if (authErrorResponse(error, response)) return;
+  if (apiErrorResponse(error, response)) return;
   response.status(500).json({ error: "Internal server error" });
 };
 
@@ -77,6 +86,29 @@ export function createApp(
   if (dependencies.authService) {
     app.use("/auth", createAuthRouter(dependencies.authService));
     app.get("/me", ...createMeHandler(dependencies.authService));
+    if (dependencies.transferWorkflowService) {
+      app.use(
+        "/recipients",
+        createRecipientsRouter(
+          dependencies.authService,
+          dependencies.transferWorkflowService
+        )
+      );
+      app.use(
+        "/transfers",
+        createTransfersRouter(
+          dependencies.authService,
+          dependencies.transferWorkflowService
+        )
+      );
+      app.use(
+        "/operations/transfers",
+        createOperationsTransfersRouter(
+          dependencies.authService,
+          dependencies.transferWorkflowService
+        )
+      );
+    }
   }
 
   app.use(notFoundHandler);

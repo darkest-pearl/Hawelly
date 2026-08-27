@@ -4,12 +4,19 @@ import { resolveAuthConfig } from "./auth/config.js";
 import { createApp } from "./app.js";
 import { resolveRuntimeConfig } from "./config.js";
 import { createPrismaClient, validateDatabaseUrl } from "./db/prisma.js";
+import { resolveTransferWorkflowConfig } from "./transfers/config.js";
+import { TransferWorkflowService } from "./transfers/service.js";
 
 const config = resolveRuntimeConfig();
 const database = createPrismaClient(validateDatabaseUrl(process.env.DATABASE_URL));
 const authService = new AuthService(database, resolveAuthConfig());
+const transferWorkflowService = new TransferWorkflowService(
+  database,
+  resolveTransferWorkflowConfig()
+);
 const app = createApp(config, {
   authService,
+  transferWorkflowService,
   readinessCheck: async () => {
     await database.$queryRaw`SELECT 1`;
   }
