@@ -4,12 +4,28 @@ const DEFAULT_CORS_ORIGINS = [
   "http://127.0.0.1:3000",
   "http://localhost:3000"
 ];
+const DEFAULT_TRUSTED_BFF_ADDRESSES = [
+  "127.0.0.1",
+  "::1",
+  "::ffff:127.0.0.1"
+];
 
 export interface RuntimeConfig {
   host: string;
   port: number;
   environment: string;
   corsOrigins: readonly string[];
+  trustedBffAddresses: readonly string[];
+}
+
+function parseTrustedBffAddresses(value: string | undefined) {
+  const addresses = value
+    ? value.split(",").map((address) => address.trim()).filter(Boolean)
+    : DEFAULT_TRUSTED_BFF_ADDRESSES;
+  if (addresses.some((address) => /[\s/]/.test(address))) {
+    throw new Error("TRUSTED_BFF_ADDRESSES must contain exact peer addresses");
+  }
+  return [...new Set(addresses)];
 }
 
 function parsePort(value: string | undefined): number {
@@ -53,6 +69,9 @@ export function resolveRuntimeConfig(
     host: environment.HOST?.trim() || DEFAULT_HOST,
     port: parsePort(environment.PORT),
     environment: environment.NODE_ENV?.trim() || "development",
-    corsOrigins: parseCorsOrigins(environment.CORS_ORIGINS)
+    corsOrigins: parseCorsOrigins(environment.CORS_ORIGINS),
+    trustedBffAddresses: parseTrustedBffAddresses(
+      environment.TRUSTED_BFF_ADDRESSES
+    )
   };
 }

@@ -28,12 +28,14 @@ export function requireAuth(authService: AuthService) {
 export function requireRole(...roles: readonly Role[]) {
   return (request: AuthRequest, response: Response, next: NextFunction) => {
     if (!request.auth) {
+      response.set("Cache-Control", "no-store");
       response.status(401).json({
         error: { code: "AUTH_REQUIRED", message: "Authentication required" }
       });
       return;
     }
     if (!roles.includes(request.auth.role)) {
+      response.set("Cache-Control", "no-store");
       response.status(403).json({
         error: { code: "FORBIDDEN", message: "Forbidden" }
       });
@@ -43,9 +45,16 @@ export function requireRole(...roles: readonly Role[]) {
   };
 }
 
-export function requireCapability(capability: Capability) {
-  return (request: AuthRequest, response: Response, next: NextFunction) => {
+export function requireCapability(
+  capability: Capability,
+  onDenied?: (
+    request: AuthRequest,
+    principal: AuthPrincipal
+  ) => Promise<void>
+) {
+  return async (request: AuthRequest, response: Response, next: NextFunction) => {
     if (!request.auth) {
+      response.set("Cache-Control", "no-store");
       response.status(401).json({
         error: { code: "AUTH_REQUIRED", message: "Authentication required" }
       });
@@ -59,6 +68,12 @@ export function requireCapability(capability: Capability) {
       request.auth.role !== Role.STAFF ||
       !request.auth.capabilities.includes(capability)
     ) {
+      try {
+        await onDenied?.(request, request.auth);
+      } catch {
+        // Authorization remains fail-closed even if denial telemetry is unavailable.
+      }
+      response.set("Cache-Control", "no-store");
       response.status(403).json({
         error: { code: "FORBIDDEN", message: "Forbidden" }
       });

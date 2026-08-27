@@ -30,7 +30,8 @@ const runtimeConfig = {
   host: "127.0.0.1",
   port: 4000,
   environment: "test",
-  corsOrigins: ["http://localhost:3000"]
+  corsOrigins: ["http://localhost:3000"],
+  trustedBffAddresses: ["127.0.0.1", "::1", "::ffff:127.0.0.1"]
 } as const;
 
 const authConfig: AuthConfig = {
@@ -234,6 +235,52 @@ integrationDescribe("database-backed authentication", () => {
     now = new Date(now.getTime() + 901_000);
     const allowed = await login("limited@example.com");
     expect(allowed.status).toBe(200);
+  });
+
+  it("isolates trusted BFF login clients while retaining per-client limits", async () => {
+    await createUser("bff-valid@example.com", Role.SENDER);
+    const strictAuth = new AuthService(database, {
+      ...authConfig,
+      loginIpMaxFailures: 2,
+      loginIdentifierMaxFailures: 20,
+      loginAccountMaxFailures: 20
+    });
+    const strictApp = createApp(runtimeConfig, { authService: strictAuth });
+    const clientA = "00000000-0000-4000-8000-000000000001";
+    const clientB = "00000000-0000-4000-8000-000000000002";
+    for (const email of ["guess-one@example.com", "guess-two@example.com"]) {
+      const failed = await request(strictApp)
+        .post("/auth/login")
+        .set("X-Client-Source", "WEB")
+        .set("X-Hawelly-BFF-Rate-Limit-Id", `client:${clientA}`)
+        .send({ email, password: "WrongPassword123" });
+      expect(failed.status).toBe(401);
+    }
+    const blockedA = await request(strictApp)
+      .post("/auth/login")
+      .set("X-Client-Source", "WEB")
+      .set("X-Hawelly-BFF-Rate-Limit-Id", `client:${clientA}`)
+      .send({ email: "guess-three@example.com", password: "WrongPassword123" });
+    expect(blockedA.status).toBe(429);
+
+    const allowedB = await request(strictApp)
+      .post("/auth/login")
+      .set("X-Client-Source", "WEB")
+      .set("X-Hawelly-BFF-Rate-Limit-Id", `client:${clientB}`)
+      .send({ email: "bff-valid@example.com", password: "CorrectHorse123" });
+    expect(allowedB.status).toBe(200);
+
+    for (const email of ["direct-one@example.com", "direct-two@example.com"]) {
+      const failed = await request(strictApp)
+        .post("/auth/login")
+        .send({ email, password: "WrongPassword123" });
+      expect(failed.status).toBe(401);
+    }
+    const directBlocked = await request(strictApp).post("/auth/login").send({
+      email: "bff-valid@example.com",
+      password: "CorrectHorse123"
+    });
+    expect(directBlocked.status).toBe(429);
   });
 
   it("rejects login attempts that arrive after a concurrent threshold is reached", async () => {

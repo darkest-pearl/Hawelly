@@ -117,5 +117,7 @@ The Android directory is a sender-client placeholder until Milestone 9. No Andro
 
 ## Status
 
-Milestones 0 through 2 are complete. Milestone 3 adds sender-scoped recipient
-management, transfer requests, and the staff new-request queue.
+Milestones 0 through 3 are complete. The working product now includes
+sender-scoped recipient management, transfer requests, sender timelines, and
+the staff new-request review queue. Milestone 4 adds versioned quote creation
+and sender acceptance/rejection.

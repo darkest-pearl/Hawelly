@@ -5,6 +5,7 @@ import {
   Prisma,
   Role,
   SessionRevocationReason,
+  StaffOperationalStatus,
   UserStatus
 } from "../generated/prisma/client.js";
 import type { HawellyPrismaClient } from "../db/prisma.js";
@@ -120,6 +121,16 @@ function publicUser(user: {
     role: user.role,
     status: user.status
   };
+}
+
+function hasOperationalAccess(user: {
+  role: Role;
+  staffProfile?: { operationalStatus: StaffOperationalStatus } | null;
+}) {
+  return (
+    user.role === Role.SENDER ||
+    user.staffProfile?.operationalStatus === StaffOperationalStatus.ACTIVE
+  );
 }
 
 export class AuthService {
@@ -309,7 +320,7 @@ export class AuthService {
     const now = this.clock();
     const email = normalizeEmail(input.email);
     const keys = buildLoginRateLimitKeys(
-      context.ipAddress,
+      context.rateLimitAddress || context.ipAddress,
       email,
       this.config
     );
@@ -332,12 +343,20 @@ export class AuthService {
         return { outcome: "blocked" as const, decision };
       }
 
-      const user = await transaction.user.findUnique({ where: { email } });
+      const user = await transaction.user.findUnique({
+        where: { email },
+        include: { staffProfile: { select: { operationalStatus: true } } }
+      });
       const passwordMatches = user
         ? await verifyPassword(user.passwordHash, input.password)
         : await verifyDummyPassword(input.password);
 
-      if (!user || user.status !== UserStatus.ACTIVE || !passwordMatches) {
+      if (
+        !user ||
+        user.status !== UserStatus.ACTIVE ||
+        !hasOperationalAccess(user) ||
+        !passwordMatches
+      ) {
         await recordLoginFailure(transaction, keys, this.config, now);
         await writeActivity(transaction, {
           actorUserId: user?.id ?? null,
@@ -451,7 +470,9 @@ export class AuthService {
     const now = this.clock();
     const existing = await this.database.authSession.findUnique({
       where: { id: parsed.sessionId },
-      include: { user: true }
+      include: {
+        user: { include: { staffProfile: { select: { operationalStatus: true } } } }
+      }
     });
     if (!existing || !tokenHashesMatch(existing.tokenHash, parsed.tokenHash)) {
       throw INVALID_SESSION;
@@ -460,7 +481,8 @@ export class AuthService {
       existing.revokedAt ||
       existing.expiresAt <= now ||
       existing.absoluteExpiresAt <= now ||
-      existing.user.status !== UserStatus.ACTIVE
+      existing.user.status !== UserStatus.ACTIVE ||
+      !hasOperationalAccess(existing.user)
     ) {
       if (existing.revocationReason === SessionRevocationReason.ROTATED) {
         await this.revokeFamilyForReplay(existing, context, now);
@@ -613,7 +635,9 @@ export class AuthService {
     const now = this.clock();
     const session = await this.database.authSession.findUnique({
       where: { id: claims.sessionId },
-      include: { user: true }
+      include: {
+        user: { include: { staffProfile: { select: { operationalStatus: true } } } }
+      }
     });
     if (
       !session ||
@@ -622,6 +646,7 @@ export class AuthService {
       session.expiresAt <= now ||
       session.absoluteExpiresAt <= now ||
       session.user.status !== UserStatus.ACTIVE ||
+      !hasOperationalAccess(session.user) ||
       session.user.sessionVersion !== claims.sessionVersion
     ) {
       throw AUTH_REQUIRED;

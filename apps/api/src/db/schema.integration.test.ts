@@ -101,9 +101,34 @@ integrationDescribe("database integrity controls", () => {
         sendAmountMinor: 100_000,
         sendCurrency: "AED",
         requestedPayoutMethod: PayoutMethod.BANK_TRANSFER,
+        recipientSnapshot: {
+          id: recipient.id,
+          fullName: recipient.fullName,
+          country: recipient.country,
+          payoutMethod: recipient.payoutMethod,
+          payoutDetails: recipient.payoutDetails
+        },
         quoteDueAt: new Date(Date.now() + 3_600_000)
       }
     });
+    await expect(
+      database.transferRequest.update({
+        where: { id: transfer.id },
+        data: {
+          recipientSnapshot: {
+            id: recipient.id,
+            fullName: "Mutated recipient",
+            country: recipient.country,
+            payoutMethod: recipient.payoutMethod,
+            payoutDetails: recipient.payoutDetails
+          }
+        }
+      })
+    ).rejects.toThrow();
+    expect(
+      (await database.transferRequest.findUniqueOrThrow({ where: { id: transfer.id } }))
+        .recipientSnapshot
+    ).toMatchObject({ fullName: recipient.fullName });
     const quote = await database.quote.create({
       data: {
         transferRequestId: transfer.id,
@@ -189,6 +214,13 @@ integrationDescribe("database integrity controls", () => {
         sendAmountMinor: 50_000,
         sendCurrency: "AED",
         requestedPayoutMethod: PayoutMethod.BANK_TRANSFER,
+        recipientSnapshot: {
+          id: recipient.id,
+          fullName: recipient.fullName,
+          country: recipient.country,
+          payoutMethod: recipient.payoutMethod,
+          payoutDetails: recipient.payoutDetails
+        },
         quoteDueAt: new Date(Date.now() + 3_600_000)
       }
     });

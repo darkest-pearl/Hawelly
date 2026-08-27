@@ -1,58 +1,138 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
-import { operationsTransfers, type OperationsTransfer } from "../../lib/milestone-2-fixtures";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { apiFetch, errorMessage } from "../../lib/api-client";
+import {
+  formatMinorAmount,
+  payoutMethodLabels,
+  transferStatus,
+  type PayoutMethod
+} from "../../lib/workflow";
 import { getPortalNavigation } from "../../lib/portal";
+import { useAuth } from "../auth/auth-provider";
 import { Button } from "../ui/button";
+import { Dialog } from "../ui/dialog";
 import { Icon } from "../ui/icon";
 import { StatusBadge } from "../ui/status-badge";
-import { HoldTransferDialog } from "./hold-transfer-dialog";
 
 type OperationsRole = "staff" | "admin";
 
-const metrics = [
-  { label: "New requests", value: "12", tone: "info", icon: "transfers" as const },
-  { label: "Quotes due", value: "5", tone: "warning", icon: "activity" as const },
-  { label: "Funding review", value: "3", tone: "review", icon: "funding" as const },
-  { label: "Exceptions", value: "2", tone: "danger", icon: "exceptions" as const }
-];
+interface QueueTransfer {
+  id: string;
+  reference: string;
+  sender: { id: string; fullName: string };
+  recipientName: string;
+  originCountry: string;
+  destinationCountry: string;
+  sendAmountMinor: string;
+  sendCurrency: string;
+  requestedPayoutMethod: PayoutMethod;
+  status: string;
+  quoteDueAt: string;
+  createdAt: string;
+}
+
+interface OperationsDetail extends QueueTransfer {
+  recipient: Record<string, unknown>;
+  sender: { id: string; fullName: string; email: string };
+  senderNote: string | null;
+}
+
+type ReasonAction = "REQUEST_INFO" | "DECLINE";
 
 export function OperationsPortal({ role }: { role: OperationsRole }) {
+  const { user, logout } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState<OperationsTransfer>(() => {
-    const firstTransfer = operationsTransfers[0];
-    if (!firstTransfer) throw new Error("Milestone 2 operations fixtures are empty");
-    return firstTransfer;
-  });
-  const [detailOpen, setDetailOpen] = useState(true);
-  const [holdOpen, setHoldOpen] = useState(false);
-  const [announcement, setAnnouncement] = useState("");
+  const [transfers, setTransfers] = useState<QueueTransfer[]>([]);
+  const [selected, setSelected] = useState<OperationsDetail | null>(null);
+  const [reasonAction, setReasonAction] = useState<ReasonAction | null>(null);
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [acting, setActing] = useState(false);
   const selectedTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const holdTriggerRef = useRef<HTMLButtonElement | null>(null);
   const navigation = getPortalNavigation(role);
+
+  useEffect(() => {
+    let active = true;
+    apiFetch<{ transfers: QueueTransfer[] }>("/operations/transfers")
+      .then((result) => {
+        if (active) setTransfers(result.transfers);
+      })
+      .catch((caught) => {
+        if (active) setError(errorMessage(caught));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const filteredTransfers = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    if (!normalized) return operationsTransfers;
-    return operationsTransfers.filter((transfer) =>
-      [transfer.reference, transfer.sender, transfer.route, transfer.status, transfer.owner]
-        .some((value) => value.toLowerCase().includes(normalized))
+    if (!normalized) return transfers;
+    return transfers.filter((transfer) =>
+      [
+        transfer.reference,
+        transfer.sender.fullName,
+        transfer.recipientName,
+        transfer.originCountry,
+        transfer.destinationCountry
+      ].some((value) => value.toLowerCase().includes(normalized))
     );
-  }, [query]);
+  }, [query, transfers]);
 
-  const closeDetail = () => {
-    setDetailOpen(false);
+  async function openDetail(transfer: QueueTransfer, trigger: HTMLButtonElement) {
+    selectedTriggerRef.current = trigger;
+    setError("");
+    try {
+      const result = await apiFetch<{ transfer: OperationsDetail }>(
+        `/operations/transfers/${transfer.id}`
+      );
+      setSelected(result.transfer);
+    } catch (caught) {
+      setError(errorMessage(caught));
+    }
+  }
+
+  function closeDetail() {
+    setSelected(null);
     requestAnimationFrame(() => selectedTriggerRef.current?.focus());
-  };
+  }
 
-  const closeHold = () => {
-    setHoldOpen(false);
-    requestAnimationFrame(() => holdTriggerRef.current?.focus());
-  };
+  async function applyReview(action: "START_QUOTING" | ReasonAction) {
+    if (!selected) return;
+    setActing(true);
+    setError("");
+    try {
+      await apiFetch(`/operations/transfers/${selected.id}/review`, {
+        method: "POST",
+        body: JSON.stringify({
+          action,
+          ...(action === "START_QUOTING" ? {} : { reason: reason.trim() })
+        })
+      });
+      setTransfers((current) => current.filter((transfer) => transfer.id !== selected.id));
+      setSelected(null);
+      setReasonAction(null);
+      setReason("");
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setActing(false);
+    }
+  }
 
+  const initials = user?.fullName
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("");
   return (
-    <main className={detailOpen ? "operations-portal has-detail" : "operations-portal"}>
+    <main className={selected ? "operations-portal has-detail" : "operations-portal"}>
       <aside className={menuOpen ? "operations-sidebar is-open" : "operations-sidebar"}>
         <a className="brand" href={role === "admin" ? "/admin" : "/staff"}>Hawelly</a>
         <p className="sidebar-label">Operations</p>
@@ -73,96 +153,54 @@ export function OperationsPortal({ role }: { role: OperationsRole }) {
             </nav>
           </div>
         ) : null}
-        <div className="operations-user"><span className="avatar">NK</span><span><strong>Nadia Khan</strong><small>{role === "admin" ? "Admin" : "Staff"}</small></span></div>
+        <button className="operations-user operations-user-button" onClick={() => void logout()} type="button">
+          <span className="avatar">{initials}</span><span><strong>{user?.fullName}</strong><small>{role === "admin" ? "Admin · Sign out" : "Staff · Sign out"}</small></span>
+        </button>
       </aside>
 
       <section className="operations-workspace">
         <header className="operations-mobile-header">
-          <a className="brand" href={role === "admin" ? "/admin" : "/staff"}>Hawelly</a>
-          <span>Operations</span>
+          <a className="brand" href={role === "admin" ? "/admin" : "/staff"}>Hawelly</a><span>Operations</span>
           <button aria-expanded={menuOpen} aria-label="Toggle operations navigation" className="icon-button" onClick={() => setMenuOpen((value) => !value)} type="button"><Icon name="menu" /></button>
         </header>
-        <div className="operations-topbar">
-          <h1>Transfer operations</h1>
-          <label className="search-field">
-            <span className="sr-only">Search reference or sender</span><Icon name="search" />
-            <input onChange={(event) => setQuery(event.target.value)} placeholder="Search reference or sender" type="search" value={query} />
-          </label>
-        </div>
-
+        <div className="operations-topbar"><h1>Transfer operations</h1><label className="search-field"><span className="sr-only">Search reference or sender</span><Icon name="search" /><input onChange={(event) => setQuery(event.target.value)} placeholder="Search reference or sender" type="search" value={query} /></label></div>
         <div className="operations-content">
-          <section className="metric-strip" aria-label="Transfer queue summary">
-            {metrics.map((metric) => (
-              <div className={`metric metric-${metric.tone}`} key={metric.label}>
-                <Icon name={metric.icon} /><span><small>{metric.label}</small><strong>{metric.value}</strong></span>
-              </div>
-            ))}
-          </section>
-
-          <section className="transfer-queue" id="transfers" aria-labelledby="active-transfers-title">
-            <h2 id="active-transfers-title">Active transfers</h2>
+          <section className="metric-strip metric-strip-single" aria-label="Transfer queue summary"><div className="metric metric-info"><Icon name="transfers" /><span><small>New requests</small><strong>{transfers.length}</strong></span></div></section>
+          {error ? <p className="page-error" role="alert">{error}</p> : null}
+          <section className="transfer-queue" id="transfers" aria-labelledby="new-requests-title">
+            <h2 id="new-requests-title">New requests</h2>
             <div className="operations-table-wrap">
               <table className="operations-table">
-                <thead><tr><th>Reference</th><th>Sender</th><th>Route</th><th>Amount</th><th>Status</th><th>Owner</th><th>Due</th><th><span className="sr-only">Actions</span></th></tr></thead>
+                <thead><tr><th>Reference</th><th>Sender</th><th>Recipient</th><th>Route</th><th>Amount</th><th>Status</th><th>Quote due</th><th><span className="sr-only">Actions</span></th></tr></thead>
                 <tbody>
                   {filteredTransfers.map((transfer) => (
-                    <tr className={selected.reference === transfer.reference && detailOpen ? "is-selected" : ""} key={transfer.reference}>
-                      <td><button
-                        aria-label={`View ${transfer.reference}`}
-                        className="table-link"
-                        onClick={(event) => {
-                          selectedTriggerRef.current = event.currentTarget;
-                          setSelected(transfer);
-                          setDetailOpen(true);
-                        }}
-                        type="button"
-                      >{transfer.reference}</button></td>
-                      <td>{transfer.sender}</td><td>{transfer.route}</td><td>{transfer.amount}</td>
-                      <td><StatusBadge label={transfer.status} tone={transfer.tone} /></td>
-                      <td>{transfer.owner}</td><td className={transfer.due.includes("h") ? "due-soon" : ""}>{transfer.due}</td>
-                      <td><button
-                        className="row-action"
-                        aria-label={`View ${transfer.reference} details`}
-                        onClick={(event) => {
-                          selectedTriggerRef.current = event.currentTarget;
-                          setSelected(transfer);
-                          setDetailOpen(true);
-                        }}
-                        type="button"
-                      ><span className="desktop-more">•••</span><span className="mobile-view">View <Icon name="chevron" /></span></button></td>
+                    <tr className={selected?.id === transfer.id ? "is-selected" : ""} key={transfer.id}>
+                      <td><button className="table-link" onClick={(event) => void openDetail(transfer, event.currentTarget)} type="button">{transfer.reference}</button></td>
+                      <td>{transfer.sender.fullName}</td><td>{transfer.recipientName}</td><td>{transfer.originCountry} → {transfer.destinationCountry}</td><td>{formatMinorAmount(transfer.sendAmountMinor, transfer.sendCurrency)}</td><td><StatusBadge {...transferStatus(transfer.status)} /></td><td className={new Date(transfer.quoteDueAt) < new Date() ? "due-soon" : ""}>{new Date(transfer.quoteDueAt).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}</td>
+                      <td><button aria-label={`View ${transfer.reference}`} className="row-action" onClick={(event) => void openDetail(transfer, event.currentTarget)} type="button"><span className="desktop-more">•••</span><span className="mobile-view">View <Icon name="chevron" /></span></button></td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-              {!filteredTransfers.length ? <p className="queue-empty">No transfers match this search.</p> : null}
+              {!loading && !filteredTransfers.length ? <p className="queue-empty">No new requests.</p> : null}
+              {loading ? <p className="queue-empty">Loading requests…</p> : null}
             </div>
           </section>
         </div>
       </section>
 
-      {detailOpen ? (
-        <aside aria-label={`Transfer ${selected.reference} details`} className="transfer-detail">
+      {selected ? (
+        <aside className="transfer-detail" aria-label={`${selected.reference} details`}>
           <div className="detail-heading"><h2>{selected.reference}</h2><button aria-label="Close transfer details" className="icon-button" onClick={closeDetail} type="button"><Icon name="close" /></button></div>
-          <StatusBadge label={selected.status} tone={selected.tone} />
-          <dl className="detail-list">
-            <div><dt>Reference</dt><dd>{selected.reference}</dd></div><div><dt>Sender</dt><dd>{selected.sender}</dd></div><div><dt>Route</dt><dd>{selected.route}</dd></div><div><dt>Amount</dt><dd>{selected.amount}</dd></div>
-            <div className="detail-divider"><dt>Status</dt><dd>{selected.status}</dd></div><div><dt>Owner</dt><dd>{selected.owner}</dd></div><div><dt>Due</dt><dd>{selected.due}</dd></div><div><dt>Created</dt><dd>{selected.created}</dd></div>
-            <div className="detail-divider"><dt>Source country</dt><dd>{selected.sourceCountry}</dd></div><div><dt>Destination country</dt><dd>{selected.destinationCountry}</dd></div><div><dt>Payment method</dt><dd>{selected.payoutMethod}</dd></div>
-          </dl>
-          <div className="detail-actions"><h3>Actions</h3><Button fullWidth>Open transfer</Button><Button fullWidth onClick={() => { holdTriggerRef.current = document.activeElement as HTMLButtonElement; setHoldOpen(true); }} variant="outline">Place on hold</Button></div>
+          <StatusBadge {...transferStatus(selected.status)} />
+          <dl className="detail-list"><div><dt>Sender</dt><dd>{selected.sender.fullName}</dd></div><div><dt>Recipient</dt><dd>{typeof selected.recipient.fullName === "string" ? selected.recipient.fullName : selected.recipientName}</dd></div><div><dt>Route</dt><dd>{selected.originCountry} → {selected.destinationCountry}</dd></div><div><dt>Amount</dt><dd>{formatMinorAmount(selected.sendAmountMinor, selected.sendCurrency)}</dd></div><div><dt>Payout</dt><dd>{payoutMethodLabels[selected.requestedPayoutMethod]}</dd></div><div><dt>Quote due</dt><dd>{new Date(selected.quoteDueAt).toLocaleString()}</dd></div>{selected.senderNote ? <div className="detail-divider"><dt>Sender note</dt><dd>{selected.senderNote}</dd></div> : null}</dl>
+          <div className="detail-actions"><h3>Request review</h3><Button disabled={acting} fullWidth onClick={() => void applyReview("START_QUOTING")}>Start quote</Button><Button disabled={acting} fullWidth onClick={() => { setReason(""); setReasonAction("REQUEST_INFO"); }} variant="outline">Request information</Button><Button disabled={acting} fullWidth onClick={() => { setReason(""); setReasonAction("DECLINE"); }} variant="ghost">Decline request</Button></div>
         </aside>
       ) : null}
 
-      <HoldTransferDialog
-        onCancel={closeHold}
-        onConfirm={() => {
-          setAnnouncement("Confirmation interface completed. No transfer was changed.");
-          closeHold();
-        }}
-        open={holdOpen}
-        reference={selected.reference}
-      />
-      <p aria-live="polite" className="sr-only">{announcement}</p>
+      <Dialog description={reasonAction === "DECLINE" ? "Give the sender a concise reason for declining this request." : "Tell the sender exactly which information is needed."} onClose={() => setReasonAction(null)} open={reasonAction !== null} title={reasonAction === "DECLINE" ? "Decline request" : "Request information"}>
+        <form onSubmit={(event) => { event.preventDefault(); if (reasonAction) void applyReview(reasonAction); }}><label htmlFor="review-reason">Sender-facing reason</label><textarea id="review-reason" maxLength={1_000} onChange={(event) => setReason(event.target.value)} required rows={5} value={reason} /><div className="dialog-actions"><Button onClick={() => setReasonAction(null)} variant="outline">Cancel</Button><Button disabled={acting || !reason.trim()} type="submit" variant={reasonAction === "DECLINE" ? "danger" : "primary"}>{acting ? "Applying…" : reasonAction === "DECLINE" ? "Decline" : "Send request"}</Button></div></form>
+      </Dialog>
     </main>
   );
 }
