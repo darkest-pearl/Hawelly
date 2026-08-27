@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  hasSameOriginHost,
+  hasSameOrigin,
   isAllowedBackendRequest,
   resolveApiBaseUrl
 } from "./backend-policy";
@@ -37,12 +37,12 @@ describe("web backend boundary policy", () => {
     );
     expect(() => resolveApiBaseUrl("https://user:pass@example.com")).toThrow();
     expect(() => resolveApiBaseUrl("https://example.com/path")).toThrow();
-    expect(hasSameOriginHost("https://app.example.com", "app.example.com")).toBe(true);
-    expect(hasSameOriginHost("http://localhost:3000", "localhost:3000")).toBe(true);
-    expect(hasSameOriginHost("https://evil.example", "app.example.com")).toBe(false);
-    expect(hasSameOriginHost("javascript:alert(1)", "app.example.com")).toBe(false);
-    expect(hasSameOriginHost("not a URL", "app.example.com")).toBe(false);
-    expect(hasSameOriginHost(null, "app.example.com")).toBe(false);
-    expect(hasSameOriginHost("https://app.example.com", null)).toBe(false);
+    expect(hasSameOrigin("https://app.example.com", "https://app.example.com")).toBe(true);
+    expect(hasSameOrigin("http://localhost:3000", "http://localhost:3000")).toBe(true);
+    expect(hasSameOrigin("http://app.example.com", "https://app.example.com")).toBe(false);
+    expect(hasSameOrigin("https://evil.example", "https://app.example.com")).toBe(false);
+    expect(hasSameOrigin("javascript:alert(1)", "https://app.example.com")).toBe(false);
+    expect(hasSameOrigin("not a URL", "https://app.example.com")).toBe(false);
+    expect(hasSameOrigin(null, "https://app.example.com")).toBe(false);
   });
 });

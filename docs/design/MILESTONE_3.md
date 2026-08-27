@@ -80,10 +80,23 @@ cookies are scoped to `/api/auth`. Browser JavaScript receives only the safe
 user projection and never receives either token.
 
 The authenticated proxy has an exact method-and-path allowlist for the
-Milestone 3 routes. Mutations require an HTTP(S) `Origin` whose host exactly
-matches the request `Host`, upstream calls have a ten-second timeout, and all
-authenticated financial responses are `no-store`. The API remains the source
-of truth for role, capability, ownership, validation, and state transitions.
+Milestone 3 routes. Mutations require an exact scheme, host, and port match
+between `Origin` and the effective request origin. Request bodies are rejected
+above 1 MiB before the BFF buffers or forwards them, upstream calls have a
+ten-second timeout, and all authenticated financial responses are `no-store`.
+Logout clears browser credentials only after server-side session revocation
+succeeds, allowing a failed revocation to be retried. The API remains the
+source of truth for role, capability, ownership, validation, and state
+transitions.
+
+Login throttling preserves distinct client identities across the BFF boundary.
+In production, `HAWELLY_CLIENT_IP_HEADER` must name one exact client-IP header
+that the trusted ingress overwrites and strips from inbound client requests.
+The BFF forwards that validated address only to API peers listed in
+`TRUSTED_BFF_ADDRESSES`; direct API clients retain socket-peer IP throttling.
+Development uses a narrow `HttpOnly`, `SameSite=Strict` login-client cookie so
+multiple local browser sessions do not share the loopback bucket. Production
+fails closed when the trusted ingress identity is missing or malformed.
 
 The sender experience uses the real recipient, transfer, timeline, and cancel
 APIs. The staff experience uses the redacted new-request queue and authorized
@@ -112,6 +125,11 @@ safe previous/next state snapshots and a reason where required. Sender timeline
 responses use an explicit action allowlist and projection; they never return
 raw audit metadata, internal notes, actor identity, IP hashes, or staff-only
 reasons.
+
+Recipient patching locks the sender-owned recipient row before reading its
+current payout method, validating method-specific details, and writing the
+result. Concurrent profile and payout edits therefore cannot create a mixed
+method/details record or an invalid transfer snapshot.
 
 ## Response and privacy rules
 
@@ -151,3 +169,24 @@ checked at 1512px and 1440px, mobile at 390px. The final render has no horizonta
 overflow, framework overlay, unexpected console warning/error, or inert primary
 control. The mobile heading, summary density, and long-reference wrapping were
 corrected during the comparison pass.
+
+## Final security verification
+
+The proportional Milestone 3 review traced sender ownership, staff capability,
+state-transition, snapshot-integrity, BFF, and audit boundaries. The final
+state closes the validated concurrent recipient-update race, shared BFF login
+lockout, unbounded BFF body buffering, cross-scheme origin acceptance, and
+false-success logout behavior. Regression coverage exercises concurrent payout
+updates, trusted-BFF versus direct-API throttling, exact-origin checks, declared
+and streamed oversized bodies, and both successful and unavailable logout
+revocation.
+
+The proposed denial-telemetry amplification issue was suppressed after
+validation: each authenticated denied request produces exactly one bounded,
+redacted append-only event, with no fan-out or attacker-controlled payload, and
+is the intentional audit behavior required for authorization denials. This has
+the same request-to-event cost as other audited authenticated actions; no
+additional amplification or authorization bypass was demonstrated. No
+reportable sender/staff IDOR, capability bypass, state race, token exposure,
+proxy escape, SSRF, XSS, or sensitive timeline/queue disclosure survived the
+final review.

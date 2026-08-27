@@ -47,6 +47,7 @@ describe("runtime configuration", () => {
 
     expect(config.host).toBe("127.0.0.1");
     expect(config.port).toBe(4000);
+    expect(config.trustedBffAddresses).toContain("127.0.0.1");
   });
 
   it.each(["0", "65536", "1.5", "not-a-port"])(
@@ -65,5 +66,11 @@ describe("runtime configuration", () => {
     expect(() =>
       resolveRuntimeConfig({ CORS_ORIGINS: "https://example.com/path" })
     ).toThrow();
+  });
+
+  it("rejects non-exact trusted BFF peer addresses", () => {
+    expect(() =>
+      resolveRuntimeConfig({ TRUSTED_BFF_ADDRESSES: "127.0.0.1/8" })
+    ).toThrow("TRUSTED_BFF_ADDRESSES must contain exact peer addresses");
   });
 });

@@ -320,7 +320,7 @@ export class AuthService {
     const now = this.clock();
     const email = normalizeEmail(input.email);
     const keys = buildLoginRateLimitKeys(
-      context.ipAddress,
+      context.rateLimitAddress || context.ipAddress,
       email,
       this.config
     );

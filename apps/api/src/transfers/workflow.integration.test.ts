@@ -23,7 +23,8 @@ const runtimeConfig = {
   host: "127.0.0.1",
   port: 4000,
   environment: "test",
-  corsOrigins: ["http://localhost:3000"]
+  corsOrigins: ["http://localhost:3000"],
+  trustedBffAddresses: ["127.0.0.1", "::1", "::ffff:127.0.0.1"]
 } as const;
 
 const authConfig: AuthConfig = {
@@ -234,6 +235,44 @@ integrationDescribe("recipient and transfer workflow", () => {
     expect(updated.body.recipient).toMatchObject({
       fullName: "Maria Updated",
       phone: null
+    });
+  });
+
+  it("serializes concurrent recipient patches without splitting payout method and details", async () => {
+    await createUser("recipient-race@example.com", Role.SENDER);
+    const token = await accessToken("recipient-race@example.com");
+    const created = await createRecipient(token);
+    const recipientId = created.body.recipient.id as string;
+
+    const [payoutUpdate, profileUpdate] = await Promise.all([
+      request(app)
+        .patch(`/recipients/${recipientId}`)
+        .set(authenticated(token))
+        .send({
+          payoutMethod: PayoutMethod.MOBILE_MONEY,
+          payoutDetails: {
+            provider: "Example Mobile",
+            accountNumber: "639171234567"
+          }
+        }),
+      request(app)
+        .patch(`/recipients/${recipientId}`)
+        .set(authenticated(token))
+        .send({ fullName: "Maria Concurrent" })
+    ]);
+
+    expect(payoutUpdate.status).toBe(200);
+    expect(profileUpdate.status).toBe(200);
+    const finalRecipient = await request(app)
+      .get(`/recipients/${recipientId}`)
+      .set(authenticated(token));
+    expect(finalRecipient.body.recipient).toMatchObject({
+      fullName: "Maria Concurrent",
+      payoutMethod: PayoutMethod.MOBILE_MONEY,
+      payoutDetails: {
+        provider: "Example Mobile",
+        accountNumber: "639171234567"
+      }
     });
   });
 

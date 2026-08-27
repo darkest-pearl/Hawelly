@@ -9,7 +9,7 @@ import {
   resolveRuntimeConfig,
   type RuntimeConfig
 } from "./config.js";
-import { requestContextMiddleware } from "./middleware/requestContext.js";
+import { createRequestContextMiddleware } from "./middleware/requestContext.js";
 import { apiErrorResponse } from "./http/errors.js";
 import {
   createOperationsTransfersRouter,
@@ -48,7 +48,7 @@ export function createApp(
 
   app.disable("x-powered-by");
   app.set("trust proxy", false);
-  app.use(requestContextMiddleware);
+  app.use(createRequestContextMiddleware(config.trustedBffAddresses));
   app.use(
     cors({
       credentials: true,

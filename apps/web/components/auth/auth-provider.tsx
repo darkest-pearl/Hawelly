@@ -58,8 +58,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
-    await fetch("/api/auth/logout", { method: "POST" });
-    setUser(null);
+    const response = await fetch("/api/auth/logout", { method: "POST" });
+    if (response.ok) setUser(null);
   }, []);
 
   const value = useMemo(
@@ -74,4 +74,3 @@ export function useAuth() {
   if (!context) throw new Error("useAuth must be used within AuthProvider");
   return context;
 }
-

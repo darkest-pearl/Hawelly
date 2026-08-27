@@ -1,10 +1,16 @@
+import { randomUUID } from "node:crypto";
+import { isIP } from "node:net";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { hasSameOriginHost, resolveApiBaseUrl } from "./backend-policy";
+import { hasSameOrigin, resolveApiBaseUrl } from "./backend-policy";
 
 export const ACCESS_COOKIE = "hawelly_access";
 export const REFRESH_COOKIE = "hawelly_refresh";
+export const LOGIN_CLIENT_COOKIE = "hawelly_login_client";
 export const UPSTREAM_TIMEOUT_MS = 10_000;
+export const MAX_REQUEST_BODY_BYTES = 1_048_576;
+
+export class RequestBodyTooLargeError extends Error {}
 
 interface SessionPayload {
   accessToken: string;
@@ -74,6 +80,75 @@ export function clearSessionCookies(response: NextResponse) {
   });
 }
 
+export function loginRateLimitIdentity(
+  request: NextRequest,
+  environment: NodeJS.ProcessEnv = process.env
+) {
+  if (environment.NODE_ENV === "production") {
+    const headerName = environment.HAWELLY_CLIENT_IP_HEADER?.trim().toLowerCase();
+    if (!headerName || !/^[a-z0-9-]+$/.test(headerName)) {
+      throw new Error("HAWELLY_CLIENT_IP_HEADER must name a trusted ingress header");
+    }
+    const clientIp = request.headers.get(headerName)?.trim() || "";
+    if (!isIP(clientIp)) {
+      throw new Error("Trusted ingress did not supply an exact client IP address");
+    }
+    return { value: `ip:${clientIp}` };
+  }
+  const existing = request.cookies.get(LOGIN_CLIENT_COOKIE)?.value || "";
+  const clientId = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    existing
+  )
+    ? existing.toLowerCase()
+    : randomUUID();
+  return { value: `client:${clientId}`, clientId };
+}
+
+export function setLoginClientCookie(response: NextResponse, clientId: string) {
+  response.cookies.set(LOGIN_CLIENT_COOKIE, clientId, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict",
+    path: "/api/auth/login",
+    maxAge: 2_592_000
+  });
+}
+
+export async function readBoundedRequestBody(
+  request: Request,
+  maximumBytes = MAX_REQUEST_BODY_BYTES
+) {
+  const declaredLength = request.headers.get("content-length");
+  if (
+    declaredLength &&
+    /^\d+$/.test(declaredLength) &&
+    Number(declaredLength) > maximumBytes
+  ) {
+    throw new RequestBodyTooLargeError("Request body is too large");
+  }
+  if (!request.body) return "";
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    totalBytes += value.byteLength;
+    if (totalBytes > maximumBytes) {
+      await reader.cancel().catch(() => undefined);
+      throw new RequestBodyTooLargeError("Request body is too large");
+    }
+    chunks.push(value);
+  }
+  const body = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(body);
+}
+
 export async function readJsonResponse(response: Response) {
   const payload = await response.json().catch(() => null);
   return payload && typeof payload === "object" ? payload : null;
@@ -85,10 +160,7 @@ export function requestIdHeaders(request: NextRequest) {
 }
 
 export function sameOriginMutation(request: NextRequest) {
-  return hasSameOriginHost(
-    request.headers.get("origin"),
-    request.headers.get("host")
-  );
+  return hasSameOrigin(request.headers.get("origin"), request.nextUrl.origin);
 }
 
 export function safeError(status: number, payload: unknown) {

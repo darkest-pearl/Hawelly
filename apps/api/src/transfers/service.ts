@@ -316,39 +316,44 @@ export class TransferWorkflowService {
     context: RequestContext
   ) {
     requireSender(principal);
-    const existing = await this.database.recipient.findUnique({
-      where: { id_ownerSenderId: { id, ownerSenderId: principal.userId } }
-    });
-    if (!existing) {
-      await this.auditDenied(principal, context, "Recipient", id);
-      throw new PublicApiError(404, "RECIPIENT_NOT_FOUND", "Recipient not found");
-    }
-    const payoutMethod = input.payoutMethod ?? existing.payoutMethod;
-    const country = input.country ?? existing.country;
-    if (!this.supportedDestination(country, payoutMethod)) {
-      throw new PublicApiError(
-        400,
-        "UNSUPPORTED_RECIPIENT_DESTINATION",
-        "Recipient country or payout method is not supported"
-      );
-    }
-    if (input.payoutMethod && !input.payoutDetails) {
-      throw new PublicApiError(
-        400,
-        "PAYOUT_DETAILS_REQUIRED",
-        "Payout details are required when payout method changes"
-      );
-    }
-    const payoutDetails = input.payoutDetails
-      ? parsePayoutDetails(payoutMethod, input.payoutDetails)
-      : undefined;
     const updated = await this.database.$transaction(async (transaction) => {
+      const locked = await transaction.$queryRaw<Array<{ id: string }>>`
+        SELECT "id"
+        FROM "Recipient"
+        WHERE "id" = ${id}::uuid
+          AND "ownerSenderId" = ${principal.userId}::uuid
+        FOR UPDATE
+      `;
+      if (locked.length === 0) return null;
+
+      const existing = await transaction.recipient.findUniqueOrThrow({
+        where: { id_ownerSenderId: { id, ownerSenderId: principal.userId } }
+      });
+      const payoutMethod = input.payoutMethod ?? existing.payoutMethod;
+      const country = input.country ?? existing.country;
+      if (!this.supportedDestination(country, payoutMethod)) {
+        throw new PublicApiError(
+          400,
+          "UNSUPPORTED_RECIPIENT_DESTINATION",
+          "Recipient country or payout method is not supported"
+        );
+      }
+      if (input.payoutMethod && !input.payoutDetails) {
+        throw new PublicApiError(
+          400,
+          "PAYOUT_DETAILS_REQUIRED",
+          "Payout details are required when payout method changes"
+        );
+      }
+      const payoutDetails = input.payoutDetails
+        ? parsePayoutDetails(payoutMethod, input.payoutDetails)
+        : undefined;
       const data: Prisma.RecipientUpdateInput = {
         ...(input.fullName !== undefined ? { fullName: input.fullName } : {}),
         ...(input.country !== undefined ? { country: input.country } : {}),
         ...(input.phone !== undefined ? { phone: input.phone } : {}),
         ...(input.address !== undefined ? { address: input.address } : {}),
-        payoutMethod,
+        ...(input.payoutMethod !== undefined ? { payoutMethod } : {}),
         ...(payoutDetails !== undefined ? { payoutDetails } : {})
       };
       const result = await transaction.recipient.update({
@@ -368,6 +373,10 @@ export class TransferWorkflowService {
       });
       return result;
     });
+    if (!updated) {
+      await this.auditDenied(principal, context, "Recipient", id);
+      throw new PublicApiError(404, "RECIPIENT_NOT_FOUND", "Recipient not found");
+    }
     return recipientProjection(updated);
   }
 

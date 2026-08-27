@@ -30,11 +30,16 @@ export function resolveApiBaseUrl(rawValue: string | undefined) {
   return url.origin;
 }
 
-export function hasSameOriginHost(requestOrigin: string | null, requestHost: string | null) {
-  if (!requestOrigin || !requestHost) return false;
+export function hasSameOrigin(requestOrigin: string | null, expectedOrigin: string) {
+  if (!requestOrigin) return false;
   try {
     const origin = new URL(requestOrigin);
-    return ["http:", "https:"].includes(origin.protocol) && origin.host === requestHost;
+    const expected = new URL(expectedOrigin);
+    return (
+      ["http:", "https:"].includes(origin.protocol) &&
+      ["http:", "https:"].includes(expected.protocol) &&
+      origin.origin === expected.origin
+    );
   } catch {
     return false;
   }

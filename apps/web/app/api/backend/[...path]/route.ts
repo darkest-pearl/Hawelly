@@ -5,7 +5,9 @@ import {
   ACCESS_COOKIE,
   apiUrl,
   clearSessionCookies,
+  readBoundedRequestBody,
   readJsonResponse,
+  RequestBodyTooLargeError,
   requestIdHeaders,
   safeError,
   sameOriginMutation,
@@ -39,9 +41,18 @@ async function proxy(request: NextRequest, context: RouteContext) {
   }
   const url = apiUrl(`/${path}`);
   url.search = request.nextUrl.search;
-  const body = ["GET", "HEAD"].includes(request.method)
-    ? undefined
-    : await request.text();
+  let body: string | undefined;
+  try {
+    body = ["GET", "HEAD"].includes(request.method)
+      ? undefined
+      : await readBoundedRequestBody(request);
+  } catch (error) {
+    if (!(error instanceof RequestBodyTooLargeError)) throw error;
+    return NextResponse.json(
+      { error: { code: "BODY_TOO_LARGE", message: "Request body is too large" } },
+      { status: 413, headers: { "Cache-Control": "no-store" } }
+    );
+  }
   const upstream = await fetch(url, {
     method: request.method,
     headers: {
