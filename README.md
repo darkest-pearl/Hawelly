@@ -117,5 +117,5 @@ The Android directory is a sender-client placeholder until Milestone 9. No Andro
 
 ## Status
 
-Milestones 0 and 1 are complete. Milestone 2 covers the shared web design system
-and role-specific portal shells.
+Milestones 0 through 2 are complete. Milestone 3 adds sender-scoped recipient
+management, transfer requests, and the staff new-request queue.

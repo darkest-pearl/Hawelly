@@ -21,7 +21,7 @@
     "dev": "concurrently -n api,web -c cyan,green \"npm run dev --workspace @hawelly/api\" \"npm run dev --workspace @hawelly/web\"",
     "dev:api": "npm run dev --workspace @hawelly/api",
     "dev:web": "npm run dev --workspace @hawelly/web",
-    "lint": "eslint apps/api/src apps/api/scripts apps/web/app --max-warnings=0",
+    "lint": "eslint apps/api/src apps/api/scripts apps/web/app apps/web/components apps/web/lib --max-warnings=0",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "build": "npm run build --workspaces --if-present",
@@ -30,6 +30,7 @@
     "db:migrate:deploy": "npm run db:migrate:deploy --workspace @hawelly/api",
     "smoke:health": "npm run smoke:health --workspace @hawelly/api",
     "qa:web:capture": "node scripts/captureWeb.mjs",
+    "qa:web:m2": "node scripts/captureMilestone2.mjs",
     "check": "npm run db:validate && npm run db:generate && npm run lint && npm run typecheck && npm test && npm run build"
   },
   "devDependencies": {
