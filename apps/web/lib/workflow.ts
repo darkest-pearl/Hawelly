@@ -42,6 +42,27 @@ export interface TransferTimelineItem {
   occurredAt: string;
 }
 
+export interface QuoteRecord {
+  id: string;
+  transferRequestId: string;
+  version: number;
+  sendAmountMinor: string;
+  sendCurrency: string;
+  feeAmountMinor: string;
+  feeBreakdown: Record<string, string> | null;
+  effectiveRate: string;
+  receiveAmountMinor: string;
+  receiveCurrency: string;
+  expectedDeliveryAt: string;
+  expiresAt: string;
+  status: "DRAFT" | "SENT" | "ACCEPTED" | "REJECTED" | "EXPIRED" | "SUPERSEDED";
+  senderFacingNote: string | null;
+  createdAt: string;
+  sentAt: string | null;
+  acceptedAt: string | null;
+  rejectedAt: string | null;
+}
+
 export const payoutMethodLabels: Record<PayoutMethod, string> = {
   BANK_TRANSFER: "Bank transfer",
   CASH_PICKUP: "Cash pickup",
@@ -74,11 +95,14 @@ export function transferStatus(status: string): {
     REQUESTED: "Quote requested",
     NEEDS_INFO: "Needs information",
     QUOTING: "Quote in progress",
+    QUOTED: "Quote ready",
+    QUOTE_ACCEPTED: "Quote accepted",
+    QUOTE_EXPIRED: "Quote expired",
     DECLINED: "Declined",
     CANCELLED: "Cancelled"
   };
   const tone: TransferTone =
-    status === "DECLINED" || status === "CANCELLED"
+    status === "DECLINED" || status === "CANCELLED" || status === "QUOTE_EXPIRED"
       ? "neutral"
       : status === "NEEDS_INFO"
         ? "warning"
@@ -94,4 +118,3 @@ export function recipientName(transfer: TransferRecord) {
     ? transfer.recipient.fullName
     : "Recipient";
 }
-

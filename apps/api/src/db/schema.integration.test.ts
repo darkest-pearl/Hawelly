@@ -143,6 +143,7 @@ integrationDescribe("database integrity controls", () => {
         expiresAt: new Date(Date.now() + 3_600_000),
         status: QuoteStatus.ACCEPTED,
         createdByStaffId: staff.id,
+        sentAt: new Date(),
         acceptedAt: new Date()
       }
     });
@@ -156,14 +157,21 @@ integrationDescribe("database integrity controls", () => {
         where: { id: quote.id },
         data: { feeAmountMinor: 2_001 }
       })
-    ).rejects.toThrow(/financial fields are immutable/i);
+    ).rejects.toThrow(/quote snapshot fields are immutable/i);
 
     await expect(
       database.quote.update({
         where: { id: quote.id },
         data: { status: QuoteStatus.REJECTED }
       })
-    ).rejects.toThrow(/status is immutable/i);
+    ).rejects.toThrow(/terminal quote status is immutable/i);
+
+    await expect(
+      database.quote.update({
+        where: { id: quote.id },
+        data: { acceptedAt: new Date(quote.acceptedAt!.getTime() + 1_000) }
+      })
+    ).rejects.toThrow(/quote lifecycle timestamps are immutable/i);
 
     const secondQuote = await database.quote.create({
       data: {
@@ -238,6 +246,7 @@ integrationDescribe("database integrity controls", () => {
         expiresAt: new Date(Date.now() + 3_600_000),
         status: QuoteStatus.ACCEPTED,
         createdByStaffId: staff.id,
+        sentAt: new Date(),
         acceptedAt: new Date()
       }
     });

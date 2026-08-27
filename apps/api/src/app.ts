@@ -17,10 +17,13 @@ import {
   createTransfersRouter
 } from "./transfers/router.js";
 import type { TransferWorkflowService } from "./transfers/service.js";
+import { createOperationsQuotesRouter, createSenderQuotesRouter } from "./quotes/router.js";
+import type { QuoteWorkflowService } from "./quotes/service.js";
 
 export interface AppDependencies {
   authService?: AuthService;
   transferWorkflowService?: TransferWorkflowService;
+  quoteWorkflowService?: QuoteWorkflowService;
   readinessCheck?: () => Promise<void>;
 }
 
@@ -108,6 +111,22 @@ export function createApp(
           dependencies.transferWorkflowService
         )
       );
+      if (dependencies.quoteWorkflowService) {
+        app.use(
+          "/transfers",
+          createSenderQuotesRouter(
+            dependencies.authService,
+            dependencies.quoteWorkflowService
+          )
+        );
+        app.use(
+          "/operations/transfers",
+          createOperationsQuotesRouter(
+            dependencies.authService,
+            dependencies.quoteWorkflowService
+          )
+        );
+      }
     }
   }
 

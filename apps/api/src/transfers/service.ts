@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { Prisma } from "../generated/prisma/client.js";
 import {
   ActivityOutcome,
+  QuoteStatus,
   Role,
   TransferStatus
 } from "../generated/prisma/enums.js";
@@ -26,7 +27,11 @@ const SENDER_TIMELINE_ACTIONS = [
   "TRANSFER_REQUEST_CANCELLED",
   "TRANSFER_REQUEST_INFO_NEEDED",
   "TRANSFER_REQUEST_QUOTING_STARTED",
-  "TRANSFER_REQUEST_DECLINED"
+  "TRANSFER_REQUEST_DECLINED",
+  "QUOTE_READY",
+  "QUOTE_ACCEPTED",
+  "QUOTE_REJECTED",
+  "QUOTE_EXPIRED"
 ] as const;
 
 type Clock = () => Date;
@@ -579,7 +584,8 @@ export class TransferWorkflowService {
         reason:
           event.actionType === "TRANSFER_REQUEST_INFO_NEEDED" ||
           event.actionType === "TRANSFER_REQUEST_DECLINED" ||
-          event.actionType === "TRANSFER_REQUEST_CANCELLED"
+          event.actionType === "TRANSFER_REQUEST_CANCELLED" ||
+          event.actionType === "QUOTE_REJECTED"
             ? event.reason
             : null,
         occurredAt: event.createdAt.toISOString()
@@ -638,6 +644,12 @@ export class TransferWorkflowService {
           "Transfer changed while the action was being applied"
         );
       }
+      if (target === TransferStatus.CANCELLED) {
+        await transaction.quote.updateMany({
+          where: { transferRequestId: id, status: QuoteStatus.SENT },
+          data: { status: QuoteStatus.SUPERSEDED }
+        });
+      }
       await writeActivity(transaction, {
         actorUserId: principal.userId,
         actorRole: principal.role,
@@ -677,7 +689,16 @@ export class TransferWorkflowService {
   async listOperationsRequests(principal: AuthPrincipal, limit: number) {
     requireOperations(principal);
     const transfers = await this.database.transferRequest.findMany({
-      where: { status: TransferStatus.REQUESTED },
+      where: {
+        status: {
+          in: [
+            TransferStatus.REQUESTED,
+            TransferStatus.NEEDS_INFO,
+            TransferStatus.QUOTING,
+            TransferStatus.QUOTED
+          ]
+        }
+      },
       orderBy: [{ quoteDueAt: "asc" }, { id: "asc" }],
       take: limit,
       include: {

@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { describe, expect, it } from "vitest";
 import {
+  expectedWebOrigin,
   loginRateLimitIdentity,
   readBoundedRequestBody,
   RequestBodyTooLargeError
@@ -80,5 +81,23 @@ describe("web server API boundary", () => {
         { NODE_ENV: "production", HAWELLY_CLIENT_IP_HEADER: "x-real-ip" }
       )
     ).toThrow("exact client IP");
+  });
+
+  it("resolves development and production web origins without ignoring scheme", () => {
+    const request = new NextRequest("http://internal:3100/api/auth/login", {
+      headers: { host: "127.0.0.1:3100" }
+    });
+    expect(expectedWebOrigin(request, { NODE_ENV: "development" })).toBe(
+      "http://127.0.0.1:3100"
+    );
+    expect(
+      expectedWebOrigin(request, {
+        NODE_ENV: "production",
+        HAWELLY_WEB_ORIGIN: "https://app.example.com"
+      })
+    ).toBe("https://app.example.com");
+    expect(() => expectedWebOrigin(request, { NODE_ENV: "production" })).toThrow(
+      "HAWELLY_WEB_ORIGIN"
+    );
   });
 });
