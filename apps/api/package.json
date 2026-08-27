@@ -16,7 +16,7 @@
     "db:migrate:deploy": "prisma migrate deploy",
     "db:migrate:status": "prisma migrate status",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --no-file-parallelism",
     "test:db": "vitest run --no-file-parallelism src/auth/auth.integration.test.ts src/db/schema.integration.test.ts",
     "smoke:health": "tsx scripts/smokeHealth.ts"
   },
