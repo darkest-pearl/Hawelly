@@ -531,6 +531,11 @@ textarea:focus-visible {
 .compact-funding dd { font-weight: 680; margin: 0; overflow-wrap: anywhere; }
 .funding-guidance { background: var(--surface-subtle); border-radius: 6px; line-height: 1.55; margin: 24px 0 0; padding: 16px 18px; }
 .success-note { color: var(--success); font-weight: 700; }
+.payout-actions { border-top: 1px solid var(--border); margin-top: 8px; padding-top: 18px; }
+.payout-actions > form,
+.payout-actions > label { margin-top: 12px; }
+.payout-summary { margin-top: 18px; }
+.payout-panel .funding-guidance { margin-bottom: 0; }
 .funding-proof-form { border-top: 1px solid var(--border); display: grid; gap: 16px; margin-top: 26px; padding-top: 24px; }
 .funding-proof-form h3,
 .funding-proof-history h3 { margin: 0; }

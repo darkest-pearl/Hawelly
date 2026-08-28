@@ -299,6 +299,8 @@ model PayoutCase {
   externalReference     String?         @db.VarChar(300)
   internalNote          String?         @db.VarChar(2000)
   senderFacingNote      String?         @db.VarChar(500)
+  completedAmountMinor  BigInt?
+  completedCurrency     String?         @db.Char(3)
   completedAt           DateTime?       @db.Timestamptz(3)
   createdAt             DateTime        @default(now()) @db.Timestamptz(3)
   updatedAt             DateTime        @updatedAt @db.Timestamptz(3)
@@ -319,6 +321,8 @@ model PayoutEvidence {
   originalFilename String?     @db.VarChar(255)
   contentType      String?     @db.VarChar(160)
   sizeBytes        BigInt?
+  uploadExpiresAt  DateTime?   @db.Timestamptz(3)
+  uploadedAt       DateTime?   @db.Timestamptz(3)
   createdByStaffId String      @db.Uuid
   createdAt        DateTime    @default(now()) @db.Timestamptz(3)
   payoutCase       PayoutCase  @relation(fields: [payoutCaseId], references: [id], onDelete: Restrict)
