@@ -68,6 +68,13 @@ export class PublicAuthError extends Error {
 
 class RefreshReplayError extends Error {}
 
+function isRefreshTransactionConflict(error: unknown) {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === "P2034"
+  );
+}
+
 const INVALID_CREDENTIALS = new PublicAuthError(
   401,
   "INVALID_CREDENTIALS",
@@ -549,7 +556,10 @@ export class AuthService {
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
       );
     } catch (error) {
-      if (error instanceof RefreshReplayError) {
+      if (
+        error instanceof RefreshReplayError ||
+        isRefreshTransactionConflict(error)
+      ) {
         await this.revokeFamilyForReplay(existing, context, now);
         throw INVALID_SESSION;
       }
