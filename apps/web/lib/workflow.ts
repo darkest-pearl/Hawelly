@@ -182,6 +182,44 @@ export interface SenderPayoutState {
   };
 }
 
+export interface ConfirmationRecord {
+  id: string;
+  source: "STAFF" | "SENDER" | "RECIPIENT";
+  note: string | null;
+  confirmedAt: string;
+}
+
+export interface DisputeRecord {
+  id: string;
+  category: string;
+  reason?: string;
+  previousTransferStatus: string;
+  status: "OPEN" | "IN_REVIEW" | "RESOLVED" | "REJECTED";
+  resolutionAction: "RESUME" | "REFUND" | "COMPLETE" | "FAIL" | "REJECT" | null;
+  resolution?: string | null;
+  openedAt: string;
+  resolvedAt: string | null;
+}
+
+export interface RefundRecord {
+  id: string;
+  amountMinor: string;
+  currency: string;
+  status: "PENDING" | "REFUNDED" | "FAILED";
+  senderFacingReason: string;
+  reason?: string;
+  externalReference?: string | null;
+  initiatedAt: string;
+  refundedAt: string | null;
+}
+
+export interface ResolutionState {
+  transferStatus: string;
+  confirmations: ConfirmationRecord[];
+  disputes: DisputeRecord[];
+  refund: RefundRecord | null;
+}
+
 export const payoutMethodLabels: Record<PayoutMethod, string> = {
   BANK_TRANSFER: "Bank transfer",
   CASH_PICKUP: "Cash pickup",
@@ -224,6 +262,9 @@ export function transferStatus(status: string): {
     CONFIRMATION_PENDING: "Confirmation needed",
     COMPLETED: "Completed",
     ON_HOLD: "On hold",
+    DISPUTED: "Disputed",
+    REFUND_PENDING: "Refund in progress",
+    REFUNDED: "Refunded",
     SUBMITTED: "Funding proof submitted",
     NEEDS_RESUBMISSION: "Funding proof needs resubmission",
     VERIFIED: "Funding proof verified",

@@ -24,6 +24,7 @@ import type { FundingWorkflowConfig } from "../funding/config.js";
 import { FundingWorkflowService } from "../funding/service.js";
 import { LocalEvidenceStorage } from "../funding/storage.js";
 import { PayoutWorkflowService } from "../payout/service.js";
+import { ResolutionWorkflowService } from "../resolution/service.js";
 
 const databaseUrl = resolveTestDatabaseUrl(process.env.TEST_DATABASE_URL);
 const integrationDescribe = databaseUrl ? describe : describe.skip;
@@ -119,12 +120,14 @@ integrationDescribe("recipient and transfer workflow", () => {
     fundingConfig,
     () => new Date(now)
   );
+  const resolutionWorkflow = new ResolutionWorkflowService(database, () => new Date(now));
   const app = createApp(runtimeConfig, {
     authService,
     transferWorkflowService: workflow,
     quoteWorkflowService: quoteWorkflow,
     fundingWorkflowService: fundingWorkflow,
-    payoutWorkflowService: payoutWorkflow
+    payoutWorkflowService: payoutWorkflow,
+    resolutionWorkflowService: resolutionWorkflow
   });
 
   async function createUser(
@@ -218,6 +221,18 @@ integrationDescribe("recipient and transfer workflow", () => {
     expect(draft.status).toBe(201);
     expect((await request(app).post(`/operations/transfers/${transferId}/quotes/${draft.body.quote.id}/send`).set(authenticated(staffToken)).send({})).status).toBe(200);
     expect((await request(app).post(`/transfers/${transferId}/quotes/${draft.body.quote.id}/decision`).set(authenticated(senderToken)).send({ decision: "ACCEPT" })).status).toBe(200);
+    return transferId;
+  }
+
+  async function createReportedPayout(senderToken: string, staffToken: string, staffId: string) {
+    const transferId = await createAcceptedTransfer(senderToken, staffToken);
+    await database.transferRequest.update({ where: { id: transferId }, data: { status: TransferStatus.FUNDS_CONFIRMED } });
+    const associate = await database.associateContact.create({ data: {
+      businessName: "Resolution Test Associate", countries: ["PH"], cities: ["Manila"], payoutMethods: [PayoutMethod.BANK_TRANSFER], currencies: ["PHP"], contactChannels: { email: "resolution@example.test" }, createdByStaffId: staffId
+    } });
+    expect((await request(app).post(`/operations/transfers/${transferId}/payout-case`).set(authenticated(staffToken)).send({ associateContactId: associate.id, expectedBy: new Date(now.getTime() + 86_400_000).toISOString() })).status).toBe(201);
+    expect((await request(app).post(`/operations/transfers/${transferId}/payout-evidence`).set(authenticated(staffToken)).send({ externalReference: "RESOLUTION-PAYOUT-REF" })).status).toBe(201);
+    expect((await request(app).post(`/operations/transfers/${transferId}/payout-report`).set(authenticated(staffToken)).send({ completedAmountMinor: "1852813", currency: "PHP", completedAt: now.toISOString(), senderFacingNote: "Payout sent." })).status).toBe(200);
     return transferId;
   }
 
@@ -1048,6 +1063,7 @@ integrationDescribe("recipient and transfer workflow", () => {
       senderFacingNote: "The payout has been sent to your recipient."
     });
     expect(reported.body).toMatchObject({ transferStatus: "PAYOUT_REPORTED", payoutCase: { status: "REPORTED", completedAmountMinor: "1852813", completedCurrency: "PHP" } });
+    expect(await database.transferConfirmation.count({ where: { transferRequestId: transferId, source: "STAFF", actorUserId: staff.id } })).toBe(1);
     expect((await database.transferRequest.findUniqueOrThrow({ where: { id: transferId } })).status).toBe(TransferStatus.PAYOUT_REPORTED);
     await expect(database.payoutCase.update({ where: { id: created.body.payoutCase.id }, data: { amountMinor: 1n } })).rejects.toThrow(/financial snapshot is immutable/i);
     await expect(database.payoutEvidence.update({ where: { id: evidenceId }, data: { externalReference: "rewritten" } })).rejects.toThrow(/evidence snapshot is immutable/i);
@@ -1059,5 +1075,109 @@ integrationDescribe("recipient and transfer workflow", () => {
     expect(JSON.stringify(senderReported.body)).not.toMatch(/PAYOUT-EXT-100|Manila Trusted|ops@example|internal/i);
     const actions = await database.activityEvent.findMany({ where: { entityId: { in: [transferId, evidenceId, associate.body.associate.id, Capability.PAYOUT_MANAGE] } }, select: { actionType: true } });
     expect(actions.map((event) => event.actionType)).toEqual(expect.arrayContaining(["AUTHORIZATION_DENIED", "ASSOCIATE_CONTACT_CREATED", "PAYOUT_STARTED", "PAYOUT_EVIDENCE_RECORDED", "PAYOUT_ON_HOLD", "PAYOUT_HOLD_RELEASED", "PAYOUT_REPORTED"]));
+  });
+
+  it("records staff and sender confirmation signals before completing a transfer", async () => {
+    const sender = await createUser("confirmation-sender@example.com", Role.SENDER);
+    const other = await createUser("confirmation-other@example.com", Role.SENDER);
+    const admin = await createUser("confirmation-admin@example.com", Role.ADMIN);
+    const staff = await createUser("confirmation-staff@example.com", Role.STAFF);
+    await database.staffCapabilityGrant.createMany({ data: [Capability.TRANSFER_REVIEW, Capability.QUOTE_MANAGE, Capability.PAYOUT_MANAGE].map((capability) => ({ staffUserId: staff.id, capability, grantedByUserId: admin.id, reason: "Confirmation test" })) });
+    const senderToken = await accessToken(sender.email); const otherToken = await accessToken(other.email); const staffToken = await accessToken(staff.email); const adminToken = await accessToken(admin.email);
+    const transferId = await createReportedPayout(senderToken, staffToken, staff.id);
+
+    expect((await request(app).post(`/transfers/${transferId}/recipient-confirmation`).set(authenticated(senderToken)).send({})).status).toBe(409);
+    expect((await request(app).post(`/transfers/${transferId}/recipient-confirmation`).set(authenticated(otherToken)).send({})).status).toBe(404);
+    const requested = await request(app).post(`/operations/transfers/${transferId}/confirmation-request`).set(authenticated(staffToken)).send({ note: "Please confirm receipt" });
+    expect(requested.body.transferStatus).toBe("CONFIRMATION_PENDING");
+    const confirmed = await request(app).post(`/transfers/${transferId}/recipient-confirmation`).set(authenticated(senderToken)).send({ note: "My recipient received the money" });
+    expect(confirmed.body.transferStatus).toBe("COMPLETED");
+    expect((await request(app).post(`/transfers/${transferId}/recipient-confirmation`).set(authenticated(senderToken)).send({})).status).toBe(409);
+    const confirmations = await database.transferConfirmation.findMany({ where: { transferRequestId: transferId }, orderBy: { confirmedAt: "asc" } });
+    expect(confirmations.map((item) => item.source)).toEqual(["STAFF", "SENDER"]);
+    await expect(database.transferConfirmation.update({ where: { id: confirmations[0]!.id }, data: { note: "rewritten" } })).rejects.toThrow(/confirmation history is immutable/i);
+    await expect(database.transferConfirmation.delete({ where: { id: confirmations[1]!.id } })).rejects.toThrow(/confirmation history cannot be deleted/i);
+    const senderState = await request(app).get(`/transfers/${transferId}/resolution`).set(authenticated(senderToken));
+    expect(senderState.body).toMatchObject({ transferStatus: "COMPLETED", confirmations: [{ source: "STAFF" }, { source: "SENDER" }] });
+    expect(JSON.stringify(senderState.body)).not.toContain(staff.id);
+
+    const overrideTransferId = await createReportedPayout(senderToken, staffToken, staff.id);
+    expect((await request(app).post(`/operations/transfers/${overrideTransferId}/admin-completion`).set(authenticated(staffToken)).send({ reason: "Unauthorized override" })).status).toBe(403);
+    const overridden = await request(app).post(`/operations/transfers/${overrideTransferId}/admin-completion`).set(authenticated(adminToken)).send({ reason: "Approved staff-evidence completion" });
+    expect(overridden.body.transferStatus).toBe("COMPLETED");
+  });
+
+  it("routes a sender dispute through reviewed refund and admin confirmation", async () => {
+    const sender = await createUser("dispute-sender@example.com", Role.SENDER);
+    const admin = await createUser("dispute-admin@example.com", Role.ADMIN);
+    const staff = await createUser("dispute-staff@example.com", Role.STAFF);
+    const disputeOnly = await createUser("dispute-only@example.com", Role.STAFF);
+    const unprivileged = await createUser("dispute-unprivileged@example.com", Role.STAFF);
+    await database.staffCapabilityGrant.createMany({ data: [Capability.TRANSFER_REVIEW, Capability.QUOTE_MANAGE, Capability.PAYOUT_MANAGE, Capability.DISPUTE_MANAGE, Capability.REFUND_MANAGE].map((capability) => ({ staffUserId: staff.id, capability, grantedByUserId: admin.id, reason: "Dispute test" })) });
+    await database.staffCapabilityGrant.createMany({ data: [Capability.TRANSFER_REVIEW, Capability.DISPUTE_MANAGE].map((capability) => ({ staffUserId: disputeOnly.id, capability, grantedByUserId: admin.id, reason: "Dispute-only test" })) });
+    const senderToken = await accessToken(sender.email); const staffToken = await accessToken(staff.email); const adminToken = await accessToken(admin.email); const disputeOnlyToken = await accessToken(disputeOnly.email); const unprivilegedToken = await accessToken(unprivileged.email);
+    const transferId = await createReportedPayout(senderToken, staffToken, staff.id);
+    await request(app).post(`/operations/transfers/${transferId}/confirmation-request`).set(authenticated(staffToken)).send({});
+    const opened = await request(app).post(`/transfers/${transferId}/disputes`).set(authenticated(senderToken)).send({ category: "RECIPIENT_NOT_PAID", reason: "Recipient has not received the payout" });
+    expect(opened.status).toBe(201);
+    expect(opened.body.transferStatus).toBe("DISPUTED");
+    const disputeId = opened.body.dispute.id as string;
+    expect((await request(app).post(`/operations/transfers/${transferId}/disputes/${disputeId}/review`).set(authenticated(unprivilegedToken)).send({})).status).toBe(403);
+    expect((await request(app).post(`/operations/transfers/${transferId}/disputes/${disputeId}/resolve`).set(authenticated(disputeOnlyToken)).send({ action: "REFUND", resolution: "Unauthorized refund", senderFacingReason: "Refund" })).status).toBe(403);
+    expect(await database.refundCase.findUnique({ where: { transferRequestId: transferId } })).toBeNull();
+    expect((await request(app).post(`/operations/transfers/${transferId}/disputes/${disputeId}/review`).set(authenticated(staffToken)).send({})).body.dispute.status).toBe("IN_REVIEW");
+    const resolved = await request(app).post(`/operations/transfers/${transferId}/disputes/${disputeId}/resolve`).set(authenticated(staffToken)).send({ action: "REFUND", resolution: "Payout could not be confirmed; return sender funds", senderFacingReason: "We are returning your funds." });
+    expect(resolved.status, JSON.stringify(resolved.body)).toBe(200);
+    expect(resolved.body.transferStatus).toBe("REFUND_PENDING");
+    expect((await database.payoutCase.findUniqueOrThrow({ where: { transferRequestId: transferId } })).status).toBe("FAILED");
+    expect((await request(app).post(`/operations/transfers/${transferId}/refund-confirmation`).set(authenticated(staffToken)).send({ externalReference: "REF-STAFF", refundedAt: now.toISOString(), reason: "Staff cannot confirm" })).status).toBe(403);
+    const refunded = await request(app).post(`/operations/transfers/${transferId}/refund-confirmation`).set(authenticated(adminToken)).send({ externalReference: "REFUND-ADMIN-100", refundedAt: now.toISOString(), reason: "Refund visible in sender account" });
+    expect(refunded.body).toMatchObject({ transferStatus: "REFUNDED", refund: { amountMinor: "125000", currency: "AED", status: "REFUNDED" } });
+    const senderState = await request(app).get(`/transfers/${transferId}/resolution`).set(authenticated(senderToken));
+    expect(senderState.body).toMatchObject({ transferStatus: "REFUNDED", refund: { senderFacingReason: "We are returning your funds.", status: "REFUNDED" } });
+    expect(JSON.stringify(senderState.body)).not.toMatch(/REFUND-ADMIN-100|return sender funds|externalReference/i);
+    const refund = await database.refundCase.findUniqueOrThrow({ where: { transferRequestId: transferId } });
+    await expect(database.refundCase.update({ where: { id: refund.id }, data: { amountMinor: 1n } })).rejects.toThrow(/refund snapshot is immutable/i);
+    await expect(database.refundCase.delete({ where: { id: refund.id } })).rejects.toThrow(/refund history cannot be deleted/i);
+    await expect(database.dispute.update({ where: { id: disputeId }, data: { resolution: "rewritten" } })).rejects.toThrow(/resolved dispute is immutable/i);
+    await expect(database.dispute.delete({ where: { id: disputeId } })).rejects.toThrow(/dispute history cannot be deleted/i);
+  });
+
+  it("serializes dispute claim and resolution without overwriting accountability", async () => {
+    const sender = await createUser("dispute-race-sender@example.com", Role.SENDER);
+    const admin = await createUser("dispute-race-admin@example.com", Role.ADMIN);
+    const reviewer = await createUser("dispute-race-reviewer@example.com", Role.STAFF);
+    const resolver = await createUser("dispute-race-resolver@example.com", Role.STAFF);
+    await database.staffCapabilityGrant.createMany({ data: [Capability.TRANSFER_REVIEW, Capability.QUOTE_MANAGE, Capability.PAYOUT_MANAGE, Capability.DISPUTE_MANAGE].map((capability) => ({ staffUserId: reviewer.id, capability, grantedByUserId: admin.id, reason: "Dispute race test" })) });
+    await database.staffCapabilityGrant.create({ data: { staffUserId: resolver.id, capability: Capability.DISPUTE_MANAGE, grantedByUserId: admin.id, reason: "Dispute race test" } });
+    const senderToken = await accessToken(sender.email); const reviewerToken = await accessToken(reviewer.email); const resolverToken = await accessToken(resolver.email);
+    const transferId = await createReportedPayout(senderToken, reviewerToken, reviewer.id);
+    const opened = await request(app).post(`/transfers/${transferId}/disputes`).set(authenticated(senderToken)).send({ category: "PAYOUT_DELAYED", reason: "Please review the payout" });
+    const disputeId = opened.body.dispute.id as string;
+
+    const [claim, resolution] = await Promise.all([
+      request(app).post(`/operations/transfers/${transferId}/disputes/${disputeId}/review`).set(authenticated(reviewerToken)).send({}),
+      request(app).post(`/operations/transfers/${transferId}/disputes/${disputeId}/resolve`).set(authenticated(resolverToken)).send({ action: "RESUME", resolution: "Operational review completed" })
+    ]);
+    expect(resolution.status, JSON.stringify(resolution.body)).toBe(200);
+    expect([200, 404]).toContain(claim.status);
+    const saved = await database.dispute.findUniqueOrThrow({ where: { id: disputeId } });
+    expect(saved.assignedToStaffId).toBe(claim.status === 200 ? reviewer.id : resolver.id);
+  });
+
+  it("blocks resume when a migrated dispute has no verified prior-state snapshot", async () => {
+    const sender = await createUser("legacy-dispute-sender@example.com", Role.SENDER);
+    const admin = await createUser("legacy-dispute-admin@example.com", Role.ADMIN);
+    const staff = await createUser("legacy-dispute-staff@example.com", Role.STAFF);
+    await database.staffCapabilityGrant.createMany({ data: [Capability.TRANSFER_REVIEW, Capability.QUOTE_MANAGE, Capability.PAYOUT_MANAGE, Capability.DISPUTE_MANAGE].map((capability) => ({ staffUserId: staff.id, capability, grantedByUserId: admin.id, reason: "Legacy dispute test" })) });
+    const senderToken = await accessToken(sender.email); const staffToken = await accessToken(staff.email);
+    const transferId = await createReportedPayout(senderToken, staffToken, staff.id);
+    await database.transferRequest.update({ where: { id: transferId }, data: { status: TransferStatus.DISPUTED } });
+    const dispute = await database.dispute.create({ data: { transferRequestId: transferId, openedByUserId: sender.id, category: "OTHER", reason: "Imported dispute", previousTransferStatus: TransferStatus.PAYOUT_REPORTED, previousTransferStatusVerified: false, openedAt: now } });
+
+    const response = await request(app).post(`/operations/transfers/${transferId}/disputes/${dispute.id}/resolve`).set(authenticated(staffToken)).send({ action: "RESUME", resolution: "Attempt unsafe resume" });
+    expect(response.status).toBe(409);
+    expect(response.body.error.code).toBe("DISPUTE_RESUME_UNSAFE");
+    expect((await database.transferRequest.findUniqueOrThrow({ where: { id: transferId } })).status).toBe(TransferStatus.DISPUTED);
   });
 });

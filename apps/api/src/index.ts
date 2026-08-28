@@ -12,6 +12,7 @@ import { resolveFundingWorkflowConfig } from "./funding/config.js";
 import { FundingWorkflowService } from "./funding/service.js";
 import { LocalEvidenceStorage } from "./funding/storage.js";
 import { PayoutWorkflowService } from "./payout/service.js";
+import { ResolutionWorkflowService } from "./resolution/service.js";
 
 const config = resolveRuntimeConfig();
 const database = createPrismaClient(validateDatabaseUrl(process.env.DATABASE_URL));
@@ -39,6 +40,7 @@ const payoutWorkflowService = new PayoutWorkflowService(
   evidenceStorage,
   fundingConfig
 );
+const resolutionWorkflowService = new ResolutionWorkflowService(database);
 await fundingWorkflowService.initializeStorage();
 const app = createApp(config, {
   authService,
@@ -46,6 +48,7 @@ const app = createApp(config, {
   quoteWorkflowService,
   fundingWorkflowService,
   payoutWorkflowService,
+  resolutionWorkflowService,
   readinessCheck: async () => {
     await database.$queryRaw`SELECT 1`;
   }

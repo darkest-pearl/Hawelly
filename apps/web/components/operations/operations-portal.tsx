@@ -18,6 +18,7 @@ import { StatusBadge } from "../ui/status-badge";
 import { QuoteDialog } from "./quote-dialog";
 import { FundingActions } from "./funding-actions";
 import { PayoutActions } from "./payout-actions";
+import { ResolutionActions } from "./resolution-actions";
 
 type OperationsRole = "staff" | "admin";
 
@@ -239,6 +240,7 @@ export function OperationsPortal({ role }: { role: OperationsRole }) {
           {user?.capabilities?.includes("QUOTE_MANAGE") && ["QUOTING", "QUOTED"].includes(selected.status) ? <div className="detail-actions"><h3>{selected.status === "QUOTED" ? "Active quote" : "Quote preparation"}</h3>{latestQuote ? <p className="detail-note">Version {latestQuote.version} Â· {latestQuote.status} Â· Recipient gets {formatMinorAmount(latestQuote.receiveAmountMinor, latestQuote.receiveCurrency)}</p> : null}{latestQuote?.status === "DRAFT" ? <Button disabled={acting} fullWidth onClick={() => void sendExistingDraft(latestQuote)}>{acting ? "Sendingâ€¦" : "Send draft quote"}</Button> : <Button disabled={acting} fullWidth onClick={() => setQuoteOpen(true)}>{selected.status === "QUOTED" ? "Prepare replacement quote" : "Prepare quote"}</Button>}</div> : null}
           {user?.capabilities?.includes("FUNDING_REVIEW") && ["QUOTE_ACCEPTED", "FUNDING_PENDING", "FUNDING_SUBMITTED", "FUNDS_CONFIRMED"].includes(selected.status) ? <FundingActions onStatus={(status) => { setSelected((current) => current ? { ...current, status } : current); setTransfers((current) => current.map((transfer) => transfer.id === selected.id ? { ...transfer, status } : transfer)); }} transfer={selected} /> : null}
           {user?.capabilities?.includes("PAYOUT_MANAGE") && ["FUNDS_CONFIRMED", "PAYOUT_IN_PROGRESS", "PAYOUT_REPORTED", "ON_HOLD"].includes(selected.status) ? <PayoutActions canManageAssociates={Boolean(user.capabilities.includes("ASSOCIATE_MANAGE"))} canViewAssociates={Boolean(user.capabilities.includes("ASSOCIATE_VIEW"))} onStatus={(status) => { setSelected((current) => current ? { ...current, status } : current); setTransfers((current) => current.map((transfer) => transfer.id === selected.id ? { ...transfer, status } : transfer)); }} transfer={selected} /> : null}
+          {user && (user.capabilities?.includes("PAYOUT_MANAGE") || user.capabilities?.includes("DISPUTE_MANAGE") || user.capabilities?.includes("REFUND_MANAGE")) && ["FUNDS_CONFIRMED", "PAYOUT_REPORTED", "CONFIRMATION_PENDING", "ON_HOLD", "DISPUTED", "REFUND_PENDING", "REFUNDED", "COMPLETED"].includes(selected.status) ? <ResolutionActions canManageDisputes={Boolean(user.capabilities?.includes("DISPUTE_MANAGE"))} canManageRefunds={Boolean(user.capabilities?.includes("REFUND_MANAGE"))} isAdmin={role === "admin"} onStatus={(status) => { setSelected((current) => current ? { ...current, status } : current); setTransfers((current) => current.map((transfer) => transfer.id === selected.id ? { ...transfer, status } : transfer)); }} transfer={selected} /> : null}
         </aside>
       ) : null}
 

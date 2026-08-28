@@ -16,6 +16,7 @@ import { StatusBadge } from "../ui/status-badge";
 import { SenderShell } from "./sender-shell";
 import { FundingPanel } from "./funding-panel";
 import { PayoutPanel } from "./payout-panel";
+import { ResolutionPanel } from "./resolution-panel";
 
 type DetailedTransfer = TransferRecord & { timeline: TransferTimelineItem[] };
 
@@ -110,6 +111,7 @@ export function TransferDetail({ transferId }: { transferId: string }) {
           {!quotes.some((quote) => quote.status === "SENT") && quotes[0] ? <section className="active-quote"><div className="active-quote-heading"><StatusBadge label={quotes[0].status === "ACCEPTED" ? "Accepted" : quotes[0].status.toLowerCase()} tone={quotes[0].status === "ACCEPTED" ? "success" : "neutral"} /><h2>Quote version {quotes[0].version}</h2></div><p>{quotes[0].status === "ACCEPTED" ? transfer.status === "QUOTE_ACCEPTED" ? "You accepted this quote. Funding instructions will appear next." : "This accepted quote is locked to the funding workflow below." : `This quote is ${quotes[0].status.toLowerCase()}.`}</p></section> : null}
           <FundingPanel onStatus={(status) => setTransfer((current) => current ? { ...current, status } : current)} transferId={transfer.id} transferStatus={transfer.status} />
           <PayoutPanel transferId={transfer.id} transferStatus={transfer.status} />
+          <ResolutionPanel onStatus={(status) => setTransfer((current) => current ? { ...current, status } : current)} transferId={transfer.id} transferStatus={transfer.status} />
           <section className="transfer-timeline" aria-labelledby="timeline-title"><h2 id="timeline-title">Activity</h2><ol>{transfer.timeline.map((item, index) => <li key={`${item.occurredAt}-${index}`}><span className="timeline-dot" /><div><strong>{item.status ? transferStatus(item.status).label : item.type}</strong><time dateTime={item.occurredAt}>{new Date(item.occurredAt).toLocaleString()}</time>{item.reason ? <p>{item.reason}</p> : null}</div></li>)}</ol></section>
         </>
       ) : null}

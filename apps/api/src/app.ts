@@ -31,6 +31,8 @@ import {
   createSenderPayoutRouter
 } from "./payout/router.js";
 import type { PayoutWorkflowService } from "./payout/service.js";
+import { createOperationsResolutionRouter, createSenderResolutionRouter } from "./resolution/router.js";
+import type { ResolutionWorkflowService } from "./resolution/service.js";
 
 export interface AppDependencies {
   authService?: AuthService;
@@ -38,6 +40,7 @@ export interface AppDependencies {
   quoteWorkflowService?: QuoteWorkflowService;
   fundingWorkflowService?: FundingWorkflowService;
   payoutWorkflowService?: PayoutWorkflowService;
+  resolutionWorkflowService?: ResolutionWorkflowService;
   readinessCheck?: () => Promise<void>;
 }
 
@@ -155,6 +158,10 @@ export function createApp(
           "/operations",
           createOperationsPayoutRouter(dependencies.authService, dependencies.payoutWorkflowService)
         );
+      }
+      if (dependencies.resolutionWorkflowService) {
+        app.use("/transfers", createSenderResolutionRouter(dependencies.authService, dependencies.resolutionWorkflowService));
+        app.use("/operations", createOperationsResolutionRouter(dependencies.authService, dependencies.resolutionWorkflowService));
       }
       app.use(
         "/transfers",
