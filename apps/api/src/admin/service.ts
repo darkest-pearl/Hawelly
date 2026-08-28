@@ -1,13 +1,12 @@
 import {
   ActivityOutcome,
-  Capability,
-  EvidenceReviewStatus,
   Prisma,
   Role,
   SessionRevocationReason,
   StaffOperationalStatus,
   TransferStatus,
   UserStatus,
+  type Capability,
   type FundingInstructionTemplate
 } from "../generated/prisma/client.js";
 import type { AuthPrincipal } from "../auth/service.js";
@@ -139,6 +138,21 @@ export class AdminWorkflowService {
     private readonly clock: () => Date = () => new Date()
   ) {}
 
+  async auditAdminDenied(principal: AuthPrincipal, context: RequestContext) {
+    await writeActivity(this.database, {
+      actorUserId: principal.userId,
+      actorRole: principal.role,
+      source: context.source,
+      requestId: context.requestId,
+      actionType: "AUTHORIZATION_DENIED",
+      outcome: ActivityOutcome.DENIED,
+      entityType: "Role",
+      entityId: Role.ADMIN,
+      errorCode: "FORBIDDEN",
+      metadata: {}
+    });
+  }
+
   async listStaff(principal: AuthPrincipal, limit: number) {
     requireAdmin(principal);
     const staff = await this.database.user.findMany({
@@ -154,7 +168,7 @@ export class AdminWorkflowService {
     requireAdmin(principal);
     assertConfirmed(input);
     const now = this.clock();
-    const passwordHash = await hashPassword(input.password);
+    const passwordHash = await hashPassword(input.temporaryPassword);
     try {
       const staff = await this.database.$transaction(async (transaction) => {
         const created = await transaction.user.create({
@@ -166,8 +180,16 @@ export class AdminWorkflowService {
             status: UserStatus.ACTIVE,
             passwordChangedAt: now,
             staffProfile: { create: { displayName: input.fullName, operationalStatus: StaffOperationalStatus.ACTIVE } }
-          },
-          include: staffInclude
+          }
+        });
+        await transaction.staffCapabilityGrant.createMany({
+          data: input.capabilities.map((capability) => ({
+            staffUserId: created.id,
+            capability,
+            grantedByUserId: principal.userId,
+            grantedAt: now,
+            reason: input.reason
+          }))
         });
         await writeActivity(transaction, {
           actorUserId: principal.userId,
@@ -178,11 +200,11 @@ export class AdminWorkflowService {
           outcome: ActivityOutcome.SUCCESS,
           entityType: "User",
           entityId: created.id,
-          nextState: { role: Role.STAFF, status: created.status, operationalStatus: created.staffProfile?.operationalStatus },
+          nextState: { role: Role.STAFF, status: created.status, operationalStatus: StaffOperationalStatus.ACTIVE, capabilities: input.capabilities },
           reason: input.reason,
           metadata: {}
         });
-        return created;
+        return transaction.user.findUniqueOrThrow({ where: { id: created.id }, include: staffInclude });
       });
       return staffProjection(staff);
     } catch (error) {
@@ -347,7 +369,10 @@ export class AdminWorkflowService {
     assertConfirmed(input);
     this.validateConfiguration(input);
     const configuration = await this.database.$transaction(async (transaction) => {
-      await transaction.$queryRaw`SELECT pg_advisory_xact_lock(782423891)`;
+      await transaction.$queryRaw`
+        SELECT 1::integer AS "acquired"
+        FROM pg_advisory_xact_lock(782423891)
+      `;
       const current = await transaction.adminConfiguration.findFirst({ where: { active: true }, orderBy: { version: "desc" } });
       const latest = await transaction.adminConfiguration.aggregate({ _max: { version: true } });
       if (current) await transaction.adminConfiguration.update({ where: { id: current.id }, data: { active: false } });

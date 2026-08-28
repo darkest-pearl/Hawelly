@@ -51,13 +51,7 @@ describe("web backend boundary policy", () => {
     [`operations/transfers/${id}/disputes/${id}/review`, "POST"],
     [`operations/transfers/${id}/disputes/${id}/resolve`, "POST"],
     [`operations/transfers/${id}/refund`, "POST"],
-    [`operations/transfers/${id}/refund-confirmation`, "POST"]
-  ])("allows %s %s", (path, method) => {
-    expect(isAllowedBackendRequest(path, method)).toBe(true);
-  });
-
-  it.each([
-    ["auth/login", "POST"],
+    [`operations/transfers/${id}/refund-confirmation`, "POST"],
     ["admin/configuration", "GET"],
     ["admin/configuration", "POST"],
     ["admin/staff", "GET"],
@@ -69,7 +63,15 @@ describe("web backend boundary policy", () => {
     ["admin/funding-templates", "POST"],
     [`admin/funding-templates/${id}`, "PATCH"],
     ["admin/activity", "GET"],
-    ["admin/dashboard", "GET"],
+    ["admin/dashboard", "GET"]
+  ])("allows %s %s", (path, method) => {
+    expect(isAllowedBackendRequest(path, method)).toBe(true);
+  });
+
+  it.each([
+    ["auth/login", "POST"],
+    ["admin/staff/not-a-uuid", "PATCH"],
+    [`admin/staff/${id}/capabilities/not_real`, "DELETE"],
     ["recipients/not-a-uuid", "GET"],
     [`operations/transfers/${id}/review`, "DELETE"],
     ["transfers", "DELETE"]

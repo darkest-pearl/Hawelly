@@ -13,6 +13,7 @@ import type { AuthPrincipal } from "../auth/service.js";
 import type { HawellyPrismaClient } from "../db/prisma.js";
 import { PublicApiError } from "../http/errors.js";
 import type { RequestContext } from "../middleware/requestContext.js";
+import type { RuntimeConfigurationProvider, TransferLimit } from "../admin/runtimeConfiguration.js";
 import type { TransferWorkflowConfig } from "./config.js";
 import {
   assertTransferTransition,
@@ -206,19 +207,39 @@ export class TransferWorkflowService {
     private readonly database: HawellyPrismaClient,
     private readonly config: TransferWorkflowConfig,
     private readonly clock: Clock = () => new Date(),
-    private readonly referenceFactory: ReferenceFactory = defaultReference
+    private readonly referenceFactory: ReferenceFactory = defaultReference,
+    private readonly runtimeConfiguration?: RuntimeConfigurationProvider
   ) {}
 
-  private supportedDestination(country: string, payoutMethod: PayoutMethod) {
-    return this.config.corridors.some(
+  private async effectivePolicy(): Promise<{ workflow: TransferWorkflowConfig; transferLimits: Readonly<Record<string, TransferLimit>> }> {
+    const active = await this.runtimeConfiguration?.getActive();
+    if (!active) return { workflow: this.config, transferLimits: {} };
+    return {
+      workflow: {
+        quoteSlaMinutes: active.quoteSlaMinutes,
+        corridors: active.supportedOriginCountries.flatMap((originCountry) =>
+          active.supportedDestinationCountries.map((destinationCountry) => ({
+            originCountry,
+            destinationCountry,
+            sendCurrencies: active.supportedCurrencies,
+            payoutMethods: active.payoutMethodsByDestination[destinationCountry] ?? []
+          }))
+        )
+      },
+      transferLimits: active.transferLimitsByCurrency
+    };
+  }
+
+  private supportedDestination(config: TransferWorkflowConfig, country: string, payoutMethod: PayoutMethod) {
+    return config.corridors.some(
       (corridor) =>
         corridor.destinationCountry === country &&
         corridor.payoutMethods.includes(payoutMethod)
     );
   }
 
-  private corridorFor(input: TransferInput) {
-    return this.config.corridors.find(
+  private corridorFor(config: TransferWorkflowConfig, input: TransferInput) {
+    return config.corridors.find(
       (corridor) =>
         corridor.originCountry === input.originCountry &&
         corridor.destinationCountry === input.destinationCountry &&
@@ -294,7 +315,8 @@ export class TransferWorkflowService {
     context: RequestContext
   ) {
     requireSender(principal);
-    if (!this.supportedDestination(input.country, input.payoutMethod)) {
+    const policy = await this.effectivePolicy();
+    if (!this.supportedDestination(policy.workflow, input.country, input.payoutMethod)) {
       throw new PublicApiError(
         400,
         "UNSUPPORTED_RECIPIENT_DESTINATION",
@@ -337,6 +359,7 @@ export class TransferWorkflowService {
     context: RequestContext
   ) {
     requireSender(principal);
+    const policy = await this.effectivePolicy();
     const updated = await this.database.$transaction(async (transaction) => {
       const locked = await transaction.$queryRaw<Array<{ id: string }>>`
         SELECT "id"
@@ -352,7 +375,7 @@ export class TransferWorkflowService {
       });
       const payoutMethod = input.payoutMethod ?? existing.payoutMethod;
       const country = input.country ?? existing.country;
-      if (!this.supportedDestination(country, payoutMethod)) {
+      if (!this.supportedDestination(policy.workflow, country, payoutMethod)) {
         throw new PublicApiError(
           400,
           "UNSUPPORTED_RECIPIENT_DESTINATION",
@@ -473,12 +496,17 @@ export class TransferWorkflowService {
     if (amount < 1n || amount > MAX_POSTGRES_BIGINT) {
       throw new PublicApiError(400, "INVALID_AMOUNT", "Send amount is invalid");
     }
-    if (!this.corridorFor(input)) {
+    const policy = await this.effectivePolicy();
+    if (!this.corridorFor(policy.workflow, input)) {
       throw new PublicApiError(
         400,
         "UNSUPPORTED_CORRIDOR",
         "Origin, destination, currency, or payout method is not supported"
       );
+    }
+    const limit = policy.transferLimits[input.sendCurrency];
+    if ((limit?.minimumAmountMinor && amount < BigInt(limit.minimumAmountMinor)) || (limit?.maximumAmountMinor && amount > BigInt(limit.maximumAmountMinor))) {
+      throw new PublicApiError(400, "TRANSFER_LIMIT_EXCEEDED", "Send amount is outside the configured transfer limits");
     }
     const recipient = await this.database.recipient.findUnique({
       where: {
@@ -500,7 +528,7 @@ export class TransferWorkflowService {
       );
     }
     const now = this.clock();
-    const quoteDueAt = new Date(now.getTime() + this.config.quoteSlaMinutes * 60_000);
+    const quoteDueAt = new Date(now.getTime() + policy.workflow.quoteSlaMinutes * 60_000);
     const recipientSnapshot = {
       id: recipient.id,
       fullName: recipient.fullName,

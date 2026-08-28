@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { apiFetch, errorMessage } from "../../lib/api-client";
-import { formatMinorAmount } from "../../lib/workflow";
 import { Button } from "../ui/button";
 import { StatusBadge } from "../ui/status-badge";
 
@@ -11,7 +10,7 @@ const payoutMethods = ["BANK_TRANSFER", "CASH_PICKUP", "MOBILE_MONEY", "OTHER"] 
 const defaultContentTypes = ["image/jpeg", "image/png", "application/pdf"];
 
 type StaffRecord = { id: string; fullName: string; email: string; status: string; operationalStatus: string; capabilities: string[]; createdAt: string };
-type ConfigurationRecord = { version: number; active: boolean; quoteSlaMinutes: number; quoteDefaultExpiryMinutes: number; supportedOriginCountries: string[]; supportedDestinationCountries: string[]; supportedCurrencies: string[]; payoutMethodsByDestination: Record<string, string[]>; evidenceMaxSizeBytes: string; evidenceAllowedContentTypes: string[]; broadcastMessage?: string | null; maintenanceMessage?: string | null; senderTransferLimitMinor?: string | null };
+type ConfigurationRecord = { version: number; active: boolean; quoteSlaMinutes: number; quoteDefaultExpiryMinutes: number; supportedOriginCountries: string[]; supportedDestinationCountries: string[]; supportedCurrencies: string[]; payoutMethodsByDestination: Record<string, string[]>; evidenceMaxSizeBytes: string; evidenceAllowedContentTypes: string[]; transferLimitsByCurrency?: Record<string, { minimumAmountMinor?: string; maximumAmountMinor?: string }> | null; broadcastMessage?: string | null; maintenanceMessage?: string | null };
 type TemplateRecord = { id: string; name: string; method: string; currency: string; payeeName: string; provider: string | null; accountReference: string | null; instructions: string; active: boolean; updatedAt: string };
 type AssociateRecord = { id: string; businessName: string; countries: string[]; cities: string[]; payoutMethods: string[]; currencies: string[]; contactChannels: Record<string, string>; status: string; updatedAt: string };
 type ActivityRecord = { id: string; actionType: string; outcome: string; entityType: string | null; entityId: string | null; actor?: { fullName?: string } | null; actorUser?: { fullName?: string } | null; actorRole: string | null; reason: string | null; createdAt: string };
@@ -19,7 +18,7 @@ type DashboardRecord = { counts: { overdueQuotes: number; fundingAttention: numb
 
 function words(value: string) { return value.toLowerCase().replaceAll("_", " "); }
 function codes(value: string) { return value.split(",").map((item) => item.trim().toUpperCase()).filter(Boolean); }
-function statusTone(status: string): "success" | "warning" | "danger" | "neutral" { return status === "ACTIVE" || status === "SUCCESS" ? "success" : status === "SUSPENDED" || status === "FAILED" || status === "DENIED" ? "danger" : status === "INACTIVE" ? "neutral" : "warning"; }
+function statusTone(status: string): "success" | "warning" | "neutral" { return status === "ACTIVE" || status === "SUCCESS" ? "success" : status === "INACTIVE" ? "neutral" : "warning"; }
 
 function requiredReason(action: string) {
   const reason = window.prompt(`${action}\n\nAdd the required audit reason:`)?.trim();
@@ -47,7 +46,7 @@ export function AdminConsole() {
     try {
       const [staffResult, configResult, templateResult, associateResult, activityResult, dashboardResult] = await Promise.all([
         apiFetch<{ staff: StaffRecord[] }>("/admin/staff"),
-        apiFetch<{ configuration: ConfigurationRecord }>("/admin/configuration"),
+        apiFetch<{ configuration: ConfigurationRecord | null }>("/admin/configuration"),
         apiFetch<{ templates: TemplateRecord[] }>("/admin/funding-templates"),
         apiFetch<{ associates: AssociateRecord[] }>("/operations/associates"),
         apiFetch<{ events: ActivityRecord[] }>("/admin/activity"),
@@ -55,10 +54,10 @@ export function AdminConsole() {
       ]);
       setStaff(staffResult.staff); setConfiguration(configResult.configuration); setTemplates(templateResult.templates); setAssociates(associateResult.associates); setEvents(activityResult.events); setDashboard(dashboardResult);
       const current = configResult.configuration;
-      setConfigDraft({
+      if (current) setConfigDraft({
         origins: current.supportedOriginCountries.join(", "), destinations: current.supportedDestinationCountries.join(", "), currencies: current.supportedCurrencies.join(", "),
         quoteSlaMinutes: String(current.quoteSlaMinutes), quoteDefaultExpiryMinutes: String(current.quoteDefaultExpiryMinutes), evidenceMaxSizeBytes: current.evidenceMaxSizeBytes,
-        contentTypes: current.evidenceAllowedContentTypes.join(", "), payoutMethods: [...new Set(Object.values(current.payoutMethodsByDestination).flat())], broadcastMessage: current.broadcastMessage || "", maintenanceMessage: current.maintenanceMessage || "", senderTransferLimitMinor: current.senderTransferLimitMinor || "", reason: ""
+        contentTypes: current.evidenceAllowedContentTypes.join(", "), payoutMethods: [...new Set(Object.values(current.payoutMethodsByDestination).flat())], broadcastMessage: current.broadcastMessage || "", maintenanceMessage: current.maintenanceMessage || "", senderTransferLimitMinor: Object.values(current.transferLimitsByCurrency || {})[0]?.maximumAmountMinor || "", reason: ""
       });
     } catch (caught) { setError(errorMessage(caught)); } finally { setLoading(false); }
   }, []);
@@ -102,8 +101,9 @@ export function AdminConsole() {
     await mutate("/admin/configuration", { method: "POST", body: JSON.stringify({
       quoteSlaMinutes: Number(configDraft.quoteSlaMinutes), quoteDefaultExpiryMinutes: Number(configDraft.quoteDefaultExpiryMinutes),
       supportedOriginCountries: codes(configDraft.origins), supportedDestinationCountries: destinations, supportedCurrencies: codes(configDraft.currencies), payoutMethodsByDestination,
-      evidenceMaxSizeBytes: configDraft.evidenceMaxSizeBytes, evidenceAllowedContentTypes: configDraft.contentTypes.split(",").map((item) => item.trim().toLowerCase()).filter(Boolean),
-      broadcastMessage: configDraft.broadcastMessage.trim() || null, maintenanceMessage: configDraft.maintenanceMessage.trim() || null, senderTransferLimitMinor: configDraft.senderTransferLimitMinor.trim() || null,
+      evidenceMaxSizeBytes: Number(configDraft.evidenceMaxSizeBytes), evidenceAllowedContentTypes: configDraft.contentTypes.split(",").map((item) => item.trim().toLowerCase()).filter(Boolean),
+      transferLimitsByCurrency: configDraft.senderTransferLimitMinor.trim() ? { [codes(configDraft.currencies)[0]!]: { maximumAmountMinor: configDraft.senderTransferLimitMinor.trim() } } : undefined,
+      broadcastMessage: configDraft.broadcastMessage.trim() || null, maintenanceMessage: configDraft.maintenanceMessage.trim() || null,
       reason: configDraft.reason.trim(), confirmed: true
     }) });
   }

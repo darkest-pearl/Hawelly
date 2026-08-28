@@ -27,6 +27,8 @@ const adminNavigation = [
     href: "/admin#configuration",
     icon: "configuration"
   },
+  { label: "Funding templates", href: "/admin#templates", icon: "funding" },
+  { label: "Associates", href: "/admin#associates", icon: "payouts" },
   { label: "Activity", href: "/admin#activity", icon: "activity" }
 ] satisfies PortalNavigationItem[];
 

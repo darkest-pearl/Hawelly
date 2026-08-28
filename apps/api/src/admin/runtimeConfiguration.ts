@@ -1,4 +1,4 @@
-import { PayoutMethod, type AdminConfiguration, type Prisma } from "../generated/prisma/client.js";
+import type { AdminConfiguration, PayoutMethod, Prisma } from "../generated/prisma/client.js";
 import type { HawellyPrismaClient } from "../db/prisma.js";
 
 export interface TransferLimit {

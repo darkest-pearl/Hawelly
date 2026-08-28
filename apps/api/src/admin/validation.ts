@@ -23,7 +23,8 @@ export const adminListSchema = z.object({
 export const createStaffSchema = z.object({
   fullName: z.string().trim().min(1).max(160),
   email: z.email().max(320),
-  password: z.string().min(12).max(128),
+  temporaryPassword: z.string().min(12).max(128),
+  capabilities: z.array(z.enum(Capability)).min(1).max(20),
   ...confirmedChange
 }).strict();
 
