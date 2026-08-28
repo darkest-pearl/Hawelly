@@ -59,6 +59,17 @@ describe("web backend boundary policy", () => {
   it.each([
     ["auth/login", "POST"],
     ["admin/configuration", "GET"],
+    ["admin/configuration", "POST"],
+    ["admin/staff", "GET"],
+    ["admin/staff", "POST"],
+    [`admin/staff/${id}`, "PATCH"],
+    [`admin/staff/${id}/capabilities`, "POST"],
+    [`admin/staff/${id}/capabilities/QUOTE_MANAGE`, "DELETE"],
+    ["admin/funding-templates", "GET"],
+    ["admin/funding-templates", "POST"],
+    [`admin/funding-templates/${id}`, "PATCH"],
+    ["admin/activity", "GET"],
+    ["admin/dashboard", "GET"],
     ["recipients/not-a-uuid", "GET"],
     [`operations/transfers/${id}/review`, "DELETE"],
     ["transfers", "DELETE"]

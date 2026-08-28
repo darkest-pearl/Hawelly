@@ -42,6 +42,7 @@ model User {
   disputesOpened               Dispute[]                @relation("DisputeOpenedBy")
   disputesAssigned             Dispute[]                @relation("DisputeAssignedTo")
   activityEvents               ActivityEvent[]          @relation("ActivityActor")
+  adminConfigurationsCreated   AdminConfiguration[]     @relation("AdminConfigurationCreatedBy")
 
   @@index([role, status])
   @@index([createdAt])
@@ -442,9 +443,13 @@ model AdminConfiguration {
   payoutMethodsByDestination   Json
   evidenceMaxSizeBytes         BigInt
   evidenceAllowedContentTypes  String[]
+  transferLimitsByCurrency     Json?
+  broadcastMessage             String?  @db.VarChar(1000)
+  maintenanceMessage           String?  @db.VarChar(1000)
   createdByAdminId             String   @db.Uuid
   reason                       String   @db.VarChar(1000)
   createdAt                    DateTime @default(now()) @db.Timestamptz(3)
+  createdByAdmin               User     @relation("AdminConfigurationCreatedBy", fields: [createdByAdminId], references: [id], onDelete: Restrict)
 
   @@index([active, version])
 }
