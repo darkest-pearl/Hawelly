@@ -118,6 +118,36 @@ export function createApp(
     }
   });
 
+  app.get("/app-updates/android", (request, response) => {
+    const rawVersionCode = request.query.versionCode;
+    if (
+      typeof rawVersionCode !== "string" ||
+      !/^\d+$/.test(rawVersionCode) ||
+      !Number.isSafeInteger(Number(rawVersionCode)) ||
+      Number(rawVersionCode) < 1
+    ) {
+      response.set("Cache-Control", "no-store");
+      response.status(400).json({
+        error: { code: "INVALID_VERSION_CODE", message: "A valid Android version code is required" }
+      });
+      return;
+    }
+    const versionCode = Number(rawVersionCode);
+    const update = config.androidUpdate;
+    response.set("Cache-Control", "no-store");
+    response.json({
+      platform: "android",
+      latestVersionCode: update.latestVersionCode,
+      latestVersionName: update.latestVersionName,
+      minimumSupportedVersionCode: update.minimumSupportedVersionCode,
+      updateAvailable: versionCode < update.latestVersionCode,
+      updateRequired: versionCode < update.minimumSupportedVersionCode,
+      downloadUrl: update.downloadUrl,
+      sha256: update.sha256,
+      releaseNotes: update.releaseNotes
+    });
+  });
+
   if (dependencies.fundingWorkflowService) {
     app.use("/evidence", createEvidenceRouter(dependencies.fundingWorkflowService));
   }

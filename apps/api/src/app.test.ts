@@ -39,6 +39,43 @@ describe("health routes", () => {
     expect(response.status).toBe(404);
     expect(response.body).toEqual({ error: "Not found" });
   });
+
+  it("returns no-store Android update metadata for the requesting version", async () => {
+    const config = resolveRuntimeConfig({
+      NODE_ENV: "test",
+      ANDROID_UPDATE_LATEST_VERSION_CODE: "4",
+      ANDROID_UPDATE_LATEST_VERSION_NAME: "1.3.0",
+      ANDROID_UPDATE_MINIMUM_SUPPORTED_VERSION_CODE: "3",
+      ANDROID_UPDATE_DOWNLOAD_URL: "https://downloads.example.com/hawelly-1.3.0.apk",
+      ANDROID_UPDATE_SHA256: "a".repeat(64),
+      ANDROID_UPDATE_RELEASE_NOTES: "Security and reliability update"
+    });
+    const response = await request(createApp(config)).get(
+      "/app-updates/android?versionCode=2"
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect(response.body).toEqual({
+      platform: "android",
+      latestVersionCode: 4,
+      latestVersionName: "1.3.0",
+      minimumSupportedVersionCode: 3,
+      updateAvailable: true,
+      updateRequired: true,
+      downloadUrl: "https://downloads.example.com/hawelly-1.3.0.apk",
+      sha256: "a".repeat(64),
+      releaseNotes: "Security and reliability update"
+    });
+  });
+
+  it("rejects missing or invalid Android version codes", async () => {
+    const app = createApp(testConfig);
+    expect((await request(app).get("/app-updates/android")).status).toBe(400);
+    expect(
+      (await request(app).get("/app-updates/android?versionCode=0")).body.error.code
+    ).toBe("INVALID_VERSION_CODE");
+  });
 });
 
 describe("runtime configuration", () => {
@@ -72,5 +109,25 @@ describe("runtime configuration", () => {
     expect(() =>
       resolveRuntimeConfig({ TRUSTED_BFF_ADDRESSES: "127.0.0.1/8" })
     ).toThrow("TRUSTED_BFF_ADDRESSES must contain exact peer addresses");
+  });
+
+  it("validates Android update integrity metadata", () => {
+    expect(() =>
+      resolveRuntimeConfig({
+        ANDROID_UPDATE_LATEST_VERSION_CODE: "2",
+        ANDROID_UPDATE_MINIMUM_SUPPORTED_VERSION_CODE: "3"
+      })
+    ).toThrow("minimum supported version");
+    expect(() =>
+      resolveRuntimeConfig({
+        ANDROID_UPDATE_DOWNLOAD_URL: "http://downloads.example.com/app.apk",
+        ANDROID_UPDATE_SHA256: "a".repeat(64)
+      })
+    ).toThrow("HTTPS URL");
+    expect(() =>
+      resolveRuntimeConfig({
+        ANDROID_UPDATE_DOWNLOAD_URL: "https://downloads.example.com/app.apk"
+      })
+    ).toThrow("configured together");
   });
 });
