@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { apiFetch, errorMessage } from "../../lib/api-client";
 import { Button } from "../ui/button";
 import { StatusBadge } from "../ui/status-badge";
@@ -131,9 +131,9 @@ export function AdminConsole() {
     await mutate(`/operations/associates/${item.id}`, { method: "PATCH", body: JSON.stringify({ status, reason, confirmed: true }) });
   }
 
-  const riskCards = useMemo(() => dashboard ? [
+  const riskCards = dashboard ? [
     ["Quote overdue", dashboard.counts.overdueQuotes], ["Funding attention", dashboard.counts.fundingAttention], ["Payout overdue", dashboard.counts.overduePayouts], ["Active disputes", dashboard.counts.activeDisputes], ["Refund pending", dashboard.counts.pendingRefunds]
-  ] as const : [], [dashboard]);
+  ] as const : [];
 
   if (loading) return <section className="admin-console"><p className="page-state">Loading administration…</p></section>;
 

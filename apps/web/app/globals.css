@@ -1006,7 +1006,7 @@ select:disabled { background: var(--surface-subtle); color: var(--ink); opacity:
 
 /* Administration */
 .admin-console { display: grid; gap: 28px; margin-top: 44px; }
-.admin-section { border-top: 1px solid var(--border); padding-top: 28px; scroll-margin-top: 20px; }
+.admin-section { border-top: 1px solid var(--border); min-width: 0; padding-top: 28px; scroll-margin-top: 20px; }
 .admin-section-heading { align-items: center; display: flex; gap: 24px; justify-content: space-between; margin-bottom: 18px; }
 .admin-section-heading h2 { font-size: 20px; margin: 3px 0 0; }
 .admin-section-heading > span { color: var(--muted); font-size: 13px; }
@@ -1252,6 +1252,16 @@ select:disabled { background: var(--surface-subtle); color: var(--ink); opacity:
 }
 
 @media (max-width: 480px) {
+  .operations-table:not(.admin-table) tbody tr {
+    gap: 7px 14px;
+    grid-template-areas:
+      "reference owner"
+      "sender status"
+      "route amount"
+      "due action";
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .operations-table:not(.admin-table) td:nth-child(even) { justify-self: end; text-align: right; }
   .dialog { padding: 22px 20px; }
   .dialog-actions { display: grid; grid-template-columns: 1fr 1fr; }
   .metric { align-items: flex-start; flex-direction: column; }
