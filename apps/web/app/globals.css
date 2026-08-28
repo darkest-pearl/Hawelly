@@ -499,6 +499,25 @@ textarea:focus-visible {
   margin: 0;
 }
 
+.resolution-panel > h2,
+.confirmation-history h3 { margin-top: 0; }
+.confirmation-history { margin-top: 22px; }
+.confirmation-history p {
+  align-items: baseline;
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  margin: 0;
+  padding: 12px 0;
+}
+.confirmation-history span {
+  color: var(--muted);
+  font-size: 13px;
+  text-align: right;
+}
+.confirmation-callout { margin-top: 18px; }
+
 .quote-economics {
   align-items: end;
   display: grid;
@@ -1111,8 +1130,10 @@ select:disabled { background: var(--surface-subtle); color: var(--ink); opacity:
   .transfer-detail-heading { align-items: flex-start; flex-direction: column; gap: 2px; }
   .transfer-detail-heading h1 { font-size: 40px; line-height: 1.12; margin-bottom: 18px; }
   .active-quote { margin-top: 30px; padding: 24px 20px; }
-  .active-quote-heading { gap: 12px; }
-  .active-quote-heading h2 { font-size: 34px; }
+  .active-quote-heading { align-items: flex-start; gap: 12px; }
+  .active-quote-heading h2 { font-size: 28px; }
+  .confirmation-history p { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .confirmation-history span { text-align: left; }
   .funding-panel { margin-top: 30px; padding: 24px 20px; }
   .funding-instructions { grid-template-columns: 1fr; }
   .funding-proof-history article { align-items: stretch; flex-direction: column; }

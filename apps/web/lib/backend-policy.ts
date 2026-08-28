@@ -13,6 +13,9 @@ const routeRules = [
   { pattern: new RegExp(`^transfers/${UUID_PATTERN.source.slice(1, -1)}/funding-proofs$`, "i"), methods: ["POST"] },
   { pattern: new RegExp(`^transfers/${UUID_PATTERN.source.slice(1, -1)}/funding-proofs/${UUID_PATTERN.source.slice(1, -1)}/read-url$`, "i"), methods: ["POST"] },
   { pattern: new RegExp(`^transfers/${UUID_PATTERN.source.slice(1, -1)}/payout$`, "i"), methods: ["GET"] },
+  { pattern: new RegExp(`^transfers/${UUID_PATTERN.source.slice(1, -1)}/resolution$`, "i"), methods: ["GET"] },
+  { pattern: new RegExp(`^transfers/${UUID_PATTERN.source.slice(1, -1)}/recipient-confirmation$`, "i"), methods: ["POST"] },
+  { pattern: new RegExp(`^transfers/${UUID_PATTERN.source.slice(1, -1)}/disputes$`, "i"), methods: ["POST"] },
   { pattern: /^operations\/transfers$/, methods: ["GET"] },
   { pattern: /^operations\/funding-templates$/, methods: ["GET"] },
   { pattern: /^operations\/associates$/, methods: ["GET", "POST"] },
@@ -31,7 +34,11 @@ const routeRules = [
   { pattern: new RegExp(`^operations/transfers/${UUID_PATTERN.source.slice(1, -1)}/payout-evidence$`, "i"), methods: ["POST"] },
   { pattern: new RegExp(`^operations/transfers/${UUID_PATTERN.source.slice(1, -1)}/payout-evidence/${UUID_PATTERN.source.slice(1, -1)}/read-url$`, "i"), methods: ["POST"] },
   { pattern: new RegExp(`^operations/transfers/${UUID_PATTERN.source.slice(1, -1)}/payout-report$`, "i"), methods: ["POST"] },
-  { pattern: new RegExp(`^operations/transfers/${UUID_PATTERN.source.slice(1, -1)}/payout-(hold|release)$`, "i"), methods: ["POST"] }
+  { pattern: new RegExp(`^operations/transfers/${UUID_PATTERN.source.slice(1, -1)}/payout-(hold|release)$`, "i"), methods: ["POST"] },
+  { pattern: new RegExp(`^operations/transfers/${UUID_PATTERN.source.slice(1, -1)}/resolution$`, "i"), methods: ["GET"] },
+  { pattern: new RegExp(`^operations/transfers/${UUID_PATTERN.source.slice(1, -1)}/(confirmation-request|admin-completion|refund|refund-confirmation)$`, "i"), methods: ["POST"] },
+  { pattern: new RegExp(`^operations/transfers/${UUID_PATTERN.source.slice(1, -1)}/disputes$`, "i"), methods: ["POST"] },
+  { pattern: new RegExp(`^operations/transfers/${UUID_PATTERN.source.slice(1, -1)}/disputes/${UUID_PATTERN.source.slice(1, -1)}/(review|resolve)$`, "i"), methods: ["POST"] }
 ] as const;
 
 export function isAllowedBackendRequest(path: string, method: string) {

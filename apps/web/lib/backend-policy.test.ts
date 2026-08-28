@@ -20,6 +20,9 @@ describe("web backend boundary policy", () => {
     [`transfers/${id}/funding-proofs`, "POST"],
     [`transfers/${id}/funding-proofs/${id}/read-url`, "POST"],
     [`transfers/${id}/payout`, "GET"],
+    [`transfers/${id}/resolution`, "GET"],
+    [`transfers/${id}/recipient-confirmation`, "POST"],
+    [`transfers/${id}/disputes`, "POST"],
     ["operations/transfers", "GET"],
     ["operations/funding-templates", "GET"],
     ["operations/associates", "GET"],
@@ -40,7 +43,15 @@ describe("web backend boundary policy", () => {
     [`operations/transfers/${id}/payout-evidence/${id}/read-url`, "POST"],
     [`operations/transfers/${id}/payout-report`, "POST"],
     [`operations/transfers/${id}/payout-hold`, "POST"],
-    [`operations/transfers/${id}/payout-release`, "POST"]
+    [`operations/transfers/${id}/payout-release`, "POST"],
+    [`operations/transfers/${id}/resolution`, "GET"],
+    [`operations/transfers/${id}/confirmation-request`, "POST"],
+    [`operations/transfers/${id}/admin-completion`, "POST"],
+    [`operations/transfers/${id}/disputes`, "POST"],
+    [`operations/transfers/${id}/disputes/${id}/review`, "POST"],
+    [`operations/transfers/${id}/disputes/${id}/resolve`, "POST"],
+    [`operations/transfers/${id}/refund`, "POST"],
+    [`operations/transfers/${id}/refund-confirmation`, "POST"]
   ])("allows %s %s", (path, method) => {
     expect(isAllowedBackendRequest(path, method)).toBe(true);
   });

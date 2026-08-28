@@ -35,6 +35,8 @@ model User {
   payoutCasesOwned             PayoutCase[]             @relation("PayoutCaseOwner")
   payoutEvidenceCreated        PayoutEvidence[]         @relation("PayoutEvidenceCreatedBy")
   confirmations                TransferConfirmation[]   @relation("ConfirmationActor")
+  refundsInitiated             RefundCase[]             @relation("RefundInitiatedBy")
+  refundsConfirmed             RefundCase[]             @relation("RefundConfirmedBy")
   associateContactsCreated     AssociateContact[]       @relation("AssociateCreatedBy")
   staffNotes                   StaffNote[]              @relation("StaffNoteAuthor")
   disputesOpened               Dispute[]                @relation("DisputeOpenedBy")
@@ -154,6 +156,7 @@ model TransferRequest {
   confirmations         TransferConfirmation[]
   staffNotes            StaffNote[]
   disputes              Dispute[]
+  refundCase            RefundCase?
 
   @@index([senderId, createdAt])
   @@index([status, quoteDueAt])
@@ -365,7 +368,10 @@ model Dispute {
   assignedToStaffId String?         @db.Uuid
   category          String          @db.VarChar(100)
   reason            String          @db.VarChar(2000)
+  previousTransferStatus TransferStatus
+  previousTransferStatusVerified Boolean @default(true)
   status            DisputeStatus   @default(OPEN)
+  resolutionAction  DisputeResolutionAction?
   resolution        String?         @db.VarChar(4000)
   openedAt          DateTime        @default(now()) @db.Timestamptz(3)
   resolvedAt        DateTime?       @db.Timestamptz(3)
@@ -376,6 +382,26 @@ model Dispute {
 
   @@index([transferRequestId, status])
   @@index([assignedToStaffId, status])
+}
+
+model RefundCase {
+  id                  String          @id @default(uuid()) @db.Uuid
+  transferRequestId   String          @unique @db.Uuid
+  amountMinor         BigInt
+  currency            String          @db.Char(3)
+  status              RefundStatus    @default(PENDING)
+  reason              String          @db.VarChar(2000)
+  senderFacingReason  String          @db.VarChar(1000)
+  externalReference   String?         @db.VarChar(300)
+  initiatedByStaffId  String          @db.Uuid
+  confirmedByAdminId  String?         @db.Uuid
+  initiatedAt         DateTime        @default(now()) @db.Timestamptz(3)
+  refundedAt          DateTime?       @db.Timestamptz(3)
+  transferRequest     TransferRequest @relation(fields: [transferRequestId], references: [id], onDelete: Restrict)
+  initiatedByStaff    User            @relation("RefundInitiatedBy", fields: [initiatedByStaffId], references: [id], onDelete: Restrict)
+  confirmedByAdmin    User?           @relation("RefundConfirmedBy", fields: [confirmedByAdminId], references: [id], onDelete: Restrict)
+
+  @@index([status, initiatedAt])
 }
 
 model ActivityEvent {
@@ -566,4 +592,18 @@ enum DisputeStatus {
   IN_REVIEW
   RESOLVED
   REJECTED
+}
+
+enum DisputeResolutionAction {
+  RESUME
+  REFUND
+  COMPLETE
+  FAIL
+  REJECT
+}
+
+enum RefundStatus {
+  PENDING
+  REFUNDED
+  FAILED
 }

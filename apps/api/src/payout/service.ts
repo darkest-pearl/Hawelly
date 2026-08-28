@@ -462,6 +462,13 @@ export class PayoutWorkflowService {
       } });
       assertTransferTransition(transfer.status, TransferStatus.PAYOUT_REPORTED);
       await transaction.transferRequest.update({ where: { id: transfer.id }, data: { status: TransferStatus.PAYOUT_REPORTED } });
+      await transaction.transferConfirmation.create({ data: {
+        transferRequestId: transfer.id,
+        source: "STAFF",
+        actorUserId: principal.userId,
+        note: input.senderFacingNote ?? null,
+        confirmedAt: now
+      } });
       await writeActivity(transaction, {
         actorUserId: principal.userId, actorRole: principal.role, source: context.source, requestId: context.requestId,
         actionType: "PAYOUT_REPORTED", outcome: ActivityOutcome.SUCCESS, entityType: "TransferRequest", entityId: transfer.id,
