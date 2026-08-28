@@ -117,7 +117,7 @@ The Android directory is a sender-client placeholder until Milestone 9. No Andro
 
 ## Status
 
-Milestones 0 through 7 are complete. The working product now includes
+Milestones 0 through 8 are complete. The working product now includes
 sender-scoped recipient management, transfer requests, sender timelines, and
 the staff new-request review queue, plus versioned staff quotes and sender
 acceptance/rejection. Staff can now publish accepted-quote-derived funding
@@ -128,5 +128,8 @@ coordinate against an internal associate directory, retain private payout
 evidence, hold/release the case, and report payout without prematurely marking
 the transfer complete. Staff and sender confirmation signals, sender disputes,
 audited operations resolution, immutable refund tracking, and admin-confirmed
-completion/refunds now close the managed transfer lifecycle. Milestone 8 adds
-administration and configuration surfaces.
+completion/refunds now close the managed transfer lifecycle. Administrators can
+now manage staff access and capabilities, activate immutable runtime-policy
+versions, maintain funding templates and associates, review audit activity, and
+monitor quote, funding, payout, dispute, and refund risk queues. Milestone 9
+adds the Android sender client.

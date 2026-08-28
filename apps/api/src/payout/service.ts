@@ -18,6 +18,7 @@ import { PublicApiError } from "../http/errors.js";
 import type { RequestContext } from "../middleware/requestContext.js";
 import { assertTransferTransition } from "../transfers/state.js";
 import type { FundingWorkflowConfig } from "../funding/config.js";
+import type { RuntimeConfigurationProvider } from "../admin/runtimeConfiguration.js";
 import { EvidenceUrlSigner, type EvidenceOperation, type LocalEvidenceStorage } from "../funding/storage.js";
 
 const MAX_BIGINT = 9_223_372_036_854_775_807n;
@@ -41,6 +42,8 @@ interface AssociatePatch {
   contactChannels?: Record<string, string> | undefined;
   trustNotes?: string | undefined;
   status?: AssociateStatus | undefined;
+  reason?: string | undefined;
+  confirmed?: true | undefined;
 }
 
 interface PayoutCaseInput {
@@ -159,7 +162,8 @@ export class PayoutWorkflowService {
     private readonly database: HawellyPrismaClient,
     private readonly storage: LocalEvidenceStorage,
     private readonly config: FundingWorkflowConfig,
-    private readonly clock: () => Date = () => new Date()
+    private readonly clock: () => Date = () => new Date(),
+    private readonly runtimeConfiguration?: RuntimeConfigurationProvider
   ) {
     this.signer = new EvidenceUrlSigner(config.signingSecret);
   }
@@ -200,25 +204,29 @@ export class PayoutWorkflowService {
 
   async updateAssociate(principal: AuthPrincipal, id: string, input: AssociatePatch, context: RequestContext) {
     requireOperations(principal);
-    const existing = await this.database.associateContact.findUnique({ where: { id } });
-    if (!existing) throw new PublicApiError(404, "ASSOCIATE_NOT_FOUND", "Associate contact not found");
-    const updated = await this.database.associateContact.update({ where: { id }, data: {
-      ...(input.businessName !== undefined ? { businessName: input.businessName } : {}),
-      ...(input.countries !== undefined ? { countries: input.countries } : {}),
-      ...(input.cities !== undefined ? { cities: input.cities } : {}),
-      ...(input.payoutMethods !== undefined ? { payoutMethods: input.payoutMethods } : {}),
-      ...(input.currencies !== undefined ? { currencies: input.currencies } : {}),
-      ...(input.contactChannels !== undefined ? { contactChannels: input.contactChannels } : {}),
-      ...(input.trustNotes !== undefined ? { trustNotes: input.trustNotes } : {}),
-      ...(input.status !== undefined ? { status: input.status } : {})
-    } });
-    await writeActivity(this.database, {
-      actorUserId: principal.userId, actorRole: principal.role, source: context.source, requestId: context.requestId,
-      actionType: "ASSOCIATE_CONTACT_UPDATED", outcome: ActivityOutcome.SUCCESS,
-      entityType: "AssociateContact", entityId: id,
-      previousState: { status: existing.status }, nextState: { status: updated.status }, metadata: { changedFields: Object.keys(input) }
+    return this.database.$transaction(async (transaction) => {
+      await transaction.$queryRaw`SELECT "id" FROM "AssociateContact" WHERE "id" = ${id}::uuid FOR UPDATE`;
+      const existing = await transaction.associateContact.findUnique({ where: { id } });
+      if (!existing) throw new PublicApiError(404, "ASSOCIATE_NOT_FOUND", "Associate contact not found");
+      const updated = await transaction.associateContact.update({ where: { id }, data: {
+        ...(input.businessName !== undefined ? { businessName: input.businessName } : {}),
+        ...(input.countries !== undefined ? { countries: input.countries } : {}),
+        ...(input.cities !== undefined ? { cities: input.cities } : {}),
+        ...(input.payoutMethods !== undefined ? { payoutMethods: input.payoutMethods } : {}),
+        ...(input.currencies !== undefined ? { currencies: input.currencies } : {}),
+        ...(input.contactChannels !== undefined ? { contactChannels: input.contactChannels } : {}),
+        ...(input.trustNotes !== undefined ? { trustNotes: input.trustNotes } : {}),
+        ...(input.status !== undefined ? { status: input.status } : {})
+      } });
+      await writeActivity(transaction, {
+        actorUserId: principal.userId, actorRole: principal.role, source: context.source, requestId: context.requestId,
+        actionType: "ASSOCIATE_CONTACT_UPDATED", outcome: ActivityOutcome.SUCCESS,
+        entityType: "AssociateContact", entityId: id,
+        previousState: { status: existing.status }, nextState: { status: updated.status }, reason: input.reason,
+        metadata: { changedFields: Object.keys(input).filter((key) => !["reason", "confirmed"].includes(key)) }
+      });
+      return associateProjection(updated);
     });
-    return associateProjection(updated);
   }
 
   private async requireCompatibleAssociate(database: HawellyPrismaClient, id: string, destinationCountry: string, payoutMethod: PayoutMethod, currency: string) {
@@ -349,8 +357,11 @@ export class PayoutWorkflowService {
     const now = this.clock();
     let attachment: { filename: string; contentType: string; sizeBytes: number; extension: string } | null = null;
     if (input.attachment) {
-      if (!this.config.allowedContentTypes.includes(input.attachment.contentType)) throw new PublicApiError(400, "INVALID_EVIDENCE_TYPE", "Evidence file type is not allowed");
-      if (input.attachment.sizeBytes > this.config.maximumProofBytes) throw new PublicApiError(413, "EVIDENCE_TOO_LARGE", "Evidence file is too large");
+      const activeConfiguration = await this.runtimeConfiguration?.getActive();
+      const allowedContentTypes = activeConfiguration?.evidenceAllowedContentTypes ?? this.config.allowedContentTypes;
+      const maximumProofBytes = activeConfiguration?.evidenceMaxSizeBytes ?? this.config.maximumProofBytes;
+      if (!allowedContentTypes.includes(input.attachment.contentType)) throw new PublicApiError(400, "INVALID_EVIDENCE_TYPE", "Evidence file type is not allowed");
+      if (input.attachment.sizeBytes > maximumProofBytes) throw new PublicApiError(413, "EVIDENCE_TOO_LARGE", "Evidence file is too large");
       attachment = { ...input.attachment, extension: extensionFor(input.attachment.contentType, input.attachment.filename) };
     }
     const evidenceId = randomUUID();

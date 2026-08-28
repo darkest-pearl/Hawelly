@@ -9,6 +9,7 @@ import { assertTransferTransition } from "../transfers/state.js";
 import type { FundingWorkflowConfig } from "./config.js";
 import { EvidenceUrlSigner, type EvidenceOperation } from "./storage.js";
 import type { LocalEvidenceStorage } from "./storage.js";
+import type { RuntimeConfigurationProvider } from "../admin/runtimeConfiguration.js";
 
 const MAX_BIGINT = 9_223_372_036_854_775_807n;
 
@@ -126,7 +127,8 @@ export class FundingWorkflowService {
     private readonly database: HawellyPrismaClient,
     private readonly storage: LocalEvidenceStorage,
     private readonly config: FundingWorkflowConfig,
-    private readonly clock: () => Date = () => new Date()
+    private readonly clock: () => Date = () => new Date(),
+    private readonly runtimeConfiguration?: RuntimeConfigurationProvider
   ) {
     this.signer = new EvidenceUrlSigner(config.signingSecret);
   }
@@ -272,10 +274,13 @@ export class FundingWorkflowService {
     if (amount && amount > MAX_BIGINT) throw new PublicApiError(400, "INVALID_FUNDING_AMOUNT", "Funding amount is invalid");
     let attachment: { filename: string; contentType: string; sizeBytes: number; extension: string } | null = null;
     if (input.attachment) {
-      if (!this.config.allowedContentTypes.includes(input.attachment.contentType)) {
+      const activeConfiguration = await this.runtimeConfiguration?.getActive();
+      const allowedContentTypes = activeConfiguration?.evidenceAllowedContentTypes ?? this.config.allowedContentTypes;
+      const maximumProofBytes = activeConfiguration?.evidenceMaxSizeBytes ?? this.config.maximumProofBytes;
+      if (!allowedContentTypes.includes(input.attachment.contentType)) {
         throw new PublicApiError(400, "INVALID_EVIDENCE_TYPE", "Evidence file type is not allowed");
       }
-      if (input.attachment.sizeBytes > this.config.maximumProofBytes) {
+      if (input.attachment.sizeBytes > maximumProofBytes) {
         throw new PublicApiError(413, "EVIDENCE_TOO_LARGE", "Evidence file is too large");
       }
       attachment = { ...input.attachment, extension: extensionFor(input.attachment.contentType, input.attachment.filename) };

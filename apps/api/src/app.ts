@@ -33,6 +33,8 @@ import {
 import type { PayoutWorkflowService } from "./payout/service.js";
 import { createOperationsResolutionRouter, createSenderResolutionRouter } from "./resolution/router.js";
 import type { ResolutionWorkflowService } from "./resolution/service.js";
+import { createAdminRouter } from "./admin/router.js";
+import type { AdminWorkflowService } from "./admin/service.js";
 
 export interface AppDependencies {
   authService?: AuthService;
@@ -41,6 +43,7 @@ export interface AppDependencies {
   fundingWorkflowService?: FundingWorkflowService;
   payoutWorkflowService?: PayoutWorkflowService;
   resolutionWorkflowService?: ResolutionWorkflowService;
+  adminWorkflowService?: AdminWorkflowService;
   readinessCheck?: () => Promise<void>;
 }
 
@@ -125,6 +128,9 @@ export function createApp(
   if (dependencies.authService) {
     app.use("/auth", createAuthRouter(dependencies.authService));
     app.get("/me", ...createMeHandler(dependencies.authService));
+    if (dependencies.adminWorkflowService) {
+      app.use("/admin", createAdminRouter(dependencies.authService, dependencies.adminWorkflowService));
+    }
     if (dependencies.transferWorkflowService) {
       app.use(
         "/recipients",

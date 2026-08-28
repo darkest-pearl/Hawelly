@@ -13,17 +13,25 @@ import { FundingWorkflowService } from "./funding/service.js";
 import { LocalEvidenceStorage } from "./funding/storage.js";
 import { PayoutWorkflowService } from "./payout/service.js";
 import { ResolutionWorkflowService } from "./resolution/service.js";
+import { AdminWorkflowService } from "./admin/service.js";
+import { DatabaseRuntimeConfigurationProvider } from "./admin/runtimeConfiguration.js";
 
 const config = resolveRuntimeConfig();
 const database = createPrismaClient(validateDatabaseUrl(process.env.DATABASE_URL));
 const authService = new AuthService(database, resolveAuthConfig());
+const runtimeConfiguration = new DatabaseRuntimeConfigurationProvider(database);
 const transferWorkflowService = new TransferWorkflowService(
   database,
-  resolveTransferWorkflowConfig()
+  resolveTransferWorkflowConfig(),
+  undefined,
+  undefined,
+  runtimeConfiguration
 );
 const quoteWorkflowService = new QuoteWorkflowService(
   database,
-  resolveQuoteWorkflowConfig()
+  resolveQuoteWorkflowConfig(),
+  undefined,
+  runtimeConfiguration
 );
 const fundingConfig = resolveFundingWorkflowConfig();
 const evidenceStorage = new LocalEvidenceStorage(
@@ -33,14 +41,19 @@ const evidenceStorage = new LocalEvidenceStorage(
 const fundingWorkflowService = new FundingWorkflowService(
   database,
   evidenceStorage,
-  fundingConfig
+  fundingConfig,
+  undefined,
+  runtimeConfiguration
 );
 const payoutWorkflowService = new PayoutWorkflowService(
   database,
   evidenceStorage,
-  fundingConfig
+  fundingConfig,
+  undefined,
+  runtimeConfiguration
 );
 const resolutionWorkflowService = new ResolutionWorkflowService(database);
+const adminWorkflowService = new AdminWorkflowService(database, fundingConfig);
 await fundingWorkflowService.initializeStorage();
 const app = createApp(config, {
   authService,
@@ -49,6 +62,7 @@ const app = createApp(config, {
   fundingWorkflowService,
   payoutWorkflowService,
   resolutionWorkflowService,
+  adminWorkflowService,
   readinessCheck: async () => {
     await database.$queryRaw`SELECT 1`;
   }

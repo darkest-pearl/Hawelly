@@ -19,6 +19,7 @@ import { QuoteDialog } from "./quote-dialog";
 import { FundingActions } from "./funding-actions";
 import { PayoutActions } from "./payout-actions";
 import { ResolutionActions } from "./resolution-actions";
+import { AdminConsole } from "./admin-console";
 
 type OperationsRole = "staff" | "admin";
 
@@ -228,6 +229,7 @@ export function OperationsPortal({ role }: { role: OperationsRole }) {
               {loading ? <p className="queue-empty">Loading requests…</p> : null}
             </div>
           </section>
+          {role === "admin" ? <AdminConsole /> : null}
         </div>
       </section>
 

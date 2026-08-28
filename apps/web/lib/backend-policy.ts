@@ -1,4 +1,5 @@
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const CAPABILITY_PATTERN = "(?:TRANSFER_REVIEW|QUOTE_MANAGE|FUNDING_REVIEW|PAYOUT_MANAGE|TRANSFER_HOLD|DISPUTE_MANAGE|REFUND_MANAGE|ASSOCIATE_VIEW|ASSOCIATE_MANAGE|STAFF_MANAGE|CONFIG_MANAGE|AUDIT_VIEW)";
 
 const routeRules = [
   { pattern: /^me$/, methods: ["GET"] },
@@ -38,7 +39,16 @@ const routeRules = [
   { pattern: new RegExp(`^operations/transfers/${UUID_PATTERN.source.slice(1, -1)}/resolution$`, "i"), methods: ["GET"] },
   { pattern: new RegExp(`^operations/transfers/${UUID_PATTERN.source.slice(1, -1)}/(confirmation-request|admin-completion|refund|refund-confirmation)$`, "i"), methods: ["POST"] },
   { pattern: new RegExp(`^operations/transfers/${UUID_PATTERN.source.slice(1, -1)}/disputes$`, "i"), methods: ["POST"] },
-  { pattern: new RegExp(`^operations/transfers/${UUID_PATTERN.source.slice(1, -1)}/disputes/${UUID_PATTERN.source.slice(1, -1)}/(review|resolve)$`, "i"), methods: ["POST"] }
+  { pattern: new RegExp(`^operations/transfers/${UUID_PATTERN.source.slice(1, -1)}/disputes/${UUID_PATTERN.source.slice(1, -1)}/(review|resolve)$`, "i"), methods: ["POST"] },
+  { pattern: /^admin\/staff$/, methods: ["GET", "POST"] },
+  { pattern: new RegExp(`^admin/staff/${UUID_PATTERN.source.slice(1, -1)}$`, "i"), methods: ["PATCH"] },
+  { pattern: new RegExp(`^admin/staff/${UUID_PATTERN.source.slice(1, -1)}/capabilities$`, "i"), methods: ["POST"] },
+  { pattern: new RegExp(`^admin/staff/${UUID_PATTERN.source.slice(1, -1)}/capabilities/${CAPABILITY_PATTERN}$`, "i"), methods: ["DELETE"] },
+  { pattern: /^admin\/configuration$/, methods: ["GET", "POST"] },
+  { pattern: /^admin\/funding-templates$/, methods: ["GET", "POST"] },
+  { pattern: new RegExp(`^admin/funding-templates/${UUID_PATTERN.source.slice(1, -1)}$`, "i"), methods: ["PATCH"] },
+  { pattern: /^admin\/activity$/, methods: ["GET"] },
+  { pattern: /^admin\/dashboard$/, methods: ["GET"] }
 ] as const;
 
 export function isAllowedBackendRequest(path: string, method: string) {

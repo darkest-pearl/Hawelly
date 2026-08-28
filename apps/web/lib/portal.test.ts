@@ -17,6 +17,8 @@ describe("portal navigation policy", () => {
     expect(getPortalNavigation("admin").administration.map(({ label }) => label)).toEqual([
       "Users",
       "Configuration",
+      "Funding templates",
+      "Associates",
       "Activity"
     ]);
   });

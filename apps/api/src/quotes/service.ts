@@ -14,6 +14,7 @@ import { PublicApiError } from "../http/errors.js";
 import type { RequestContext } from "../middleware/requestContext.js";
 import { assertTransferTransition } from "../transfers/state.js";
 import type { QuoteWorkflowConfig } from "./config.js";
+import type { RuntimeConfigurationProvider } from "../admin/runtimeConfiguration.js";
 
 const MAX_BIGINT = 9_223_372_036_854_775_807n;
 
@@ -89,7 +90,8 @@ export class QuoteWorkflowService {
   constructor(
     private readonly database: HawellyPrismaClient,
     private readonly config: QuoteWorkflowConfig,
-    private readonly clock: () => Date = () => new Date()
+    private readonly clock: () => Date = () => new Date(),
+    private readonly runtimeConfiguration?: RuntimeConfigurationProvider
   ) {}
 
   async auditCapabilityDenied(
@@ -124,7 +126,9 @@ export class QuoteWorkflowService {
     if (expectedDeliveryAt <= now) {
       throw new PublicApiError(400, "INVALID_DELIVERY_TIME", "Expected delivery must be in the future");
     }
-    const expiresAt = new Date(now.getTime() + (input.validForMinutes ?? this.config.defaultExpiryMinutes) * 60_000);
+    const activeConfiguration = await this.runtimeConfiguration?.getActive();
+    const defaultExpiryMinutes = activeConfiguration?.quoteDefaultExpiryMinutes ?? this.config.defaultExpiryMinutes;
+    const expiresAt = new Date(now.getTime() + (input.validForMinutes ?? defaultExpiryMinutes) * 60_000);
 
     const quote = await this.database.$transaction(async (transaction) => {
       await transaction.$queryRaw`SELECT "id" FROM "TransferRequest" WHERE "id" = ${transferId}::uuid FOR UPDATE`;

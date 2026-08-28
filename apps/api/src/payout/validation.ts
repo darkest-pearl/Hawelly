@@ -21,8 +21,16 @@ export const associateCreateSchema = z.object({
 }).strict();
 
 export const associatePatchSchema = associateCreateSchema.partial().extend({
-  status: z.enum(["ACTIVE", "INACTIVE", "SUSPENDED"]).optional()
-}).refine((value) => Object.keys(value).length > 0, "At least one field is required");
+  status: z.enum(["ACTIVE", "INACTIVE", "SUSPENDED"]).optional(),
+  reason: z.string().trim().min(3).max(1_000).optional(),
+  confirmed: z.literal(true).optional()
+}).superRefine((value, context) => {
+  const changed = Object.keys(value).some((key) => !["reason", "confirmed"].includes(key));
+  if (!changed) context.addIssue({ code: "custom", message: "At least one field is required" });
+  if (value.status !== undefined && (!value.reason || value.confirmed !== true)) {
+    context.addIssue({ code: "custom", path: ["confirmed"], message: "Status changes require confirmation and a reason" });
+  }
+});
 
 export const createPayoutCaseSchema = z.object({
   associateContactId: z.uuid().optional(),
