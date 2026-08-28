@@ -17,6 +17,7 @@ import { Icon } from "../ui/icon";
 import { StatusBadge } from "../ui/status-badge";
 import { QuoteDialog } from "./quote-dialog";
 import { FundingActions } from "./funding-actions";
+import { PayoutActions } from "./payout-actions";
 
 type OperationsRole = "staff" | "admin";
 
@@ -208,7 +209,7 @@ export function OperationsPortal({ role }: { role: OperationsRole }) {
           <section className="metric-strip metric-strip-single" aria-label="Transfer queue summary"><div className="metric metric-info"><Icon name="transfers" /><span><small>Open transfer work</small><strong>{transfers.length}</strong></span></div></section>
           {error ? <p className="page-error" role="alert">{error}</p> : null}
           <section className="transfer-queue" id="transfers" aria-labelledby="new-requests-title">
-            <h2 id="new-requests-title">Requests, quotes, and funding</h2>
+            <h2 id="new-requests-title">Requests, quotes, funding, and payouts</h2>
             <div className="operations-table-wrap">
               <table className="operations-table">
                 <thead><tr><th>Reference</th><th>Sender</th><th>Recipient</th><th>Route</th><th>Amount</th><th>Status</th><th>Quote due</th><th><span className="sr-only">Actions</span></th></tr></thead>
@@ -237,6 +238,7 @@ export function OperationsPortal({ role }: { role: OperationsRole }) {
           {selected.status === "REQUESTED" || selected.status === "NEEDS_INFO" ? <div className="detail-actions"><h3>Request review</h3><Button disabled={acting} fullWidth onClick={() => void applyReview("START_QUOTING")}>Start quote</Button><Button disabled={acting} fullWidth onClick={() => { setReason(""); setReasonAction("REQUEST_INFO"); }} variant="outline">Request information</Button><Button disabled={acting} fullWidth onClick={() => { setReason(""); setReasonAction("DECLINE"); }} variant="ghost">Decline request</Button></div> : null}
           {user?.capabilities?.includes("QUOTE_MANAGE") && ["QUOTING", "QUOTED"].includes(selected.status) ? <div className="detail-actions"><h3>{selected.status === "QUOTED" ? "Active quote" : "Quote preparation"}</h3>{latestQuote ? <p className="detail-note">Version {latestQuote.version} Â· {latestQuote.status} Â· Recipient gets {formatMinorAmount(latestQuote.receiveAmountMinor, latestQuote.receiveCurrency)}</p> : null}{latestQuote?.status === "DRAFT" ? <Button disabled={acting} fullWidth onClick={() => void sendExistingDraft(latestQuote)}>{acting ? "Sendingâ€¦" : "Send draft quote"}</Button> : <Button disabled={acting} fullWidth onClick={() => setQuoteOpen(true)}>{selected.status === "QUOTED" ? "Prepare replacement quote" : "Prepare quote"}</Button>}</div> : null}
           {user?.capabilities?.includes("FUNDING_REVIEW") && ["QUOTE_ACCEPTED", "FUNDING_PENDING", "FUNDING_SUBMITTED", "FUNDS_CONFIRMED"].includes(selected.status) ? <FundingActions onStatus={(status) => { setSelected((current) => current ? { ...current, status } : current); setTransfers((current) => current.map((transfer) => transfer.id === selected.id ? { ...transfer, status } : transfer)); }} transfer={selected} /> : null}
+          {user?.capabilities?.includes("PAYOUT_MANAGE") && ["FUNDS_CONFIRMED", "PAYOUT_IN_PROGRESS", "PAYOUT_REPORTED", "ON_HOLD"].includes(selected.status) ? <PayoutActions canManageAssociates={Boolean(user.capabilities.includes("ASSOCIATE_MANAGE"))} canViewAssociates={Boolean(user.capabilities.includes("ASSOCIATE_VIEW"))} onStatus={(status) => { setSelected((current) => current ? { ...current, status } : current); setTransfers((current) => current.map((transfer) => transfer.id === selected.id ? { ...transfer, status } : transfer)); }} transfer={selected} /> : null}
         </aside>
       ) : null}
 

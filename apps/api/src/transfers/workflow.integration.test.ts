@@ -23,6 +23,7 @@ import { QuoteWorkflowService } from "../quotes/service.js";
 import type { FundingWorkflowConfig } from "../funding/config.js";
 import { FundingWorkflowService } from "../funding/service.js";
 import { LocalEvidenceStorage } from "../funding/storage.js";
+import { PayoutWorkflowService } from "../payout/service.js";
 
 const databaseUrl = resolveTestDatabaseUrl(process.env.TEST_DATABASE_URL);
 const integrationDescribe = databaseUrl ? describe : describe.skip;
@@ -112,11 +113,18 @@ integrationDescribe("recipient and transfer workflow", () => {
     fundingConfig,
     () => new Date(now)
   );
+  const payoutWorkflow = new PayoutWorkflowService(
+    database,
+    evidenceStorage,
+    fundingConfig,
+    () => new Date(now)
+  );
   const app = createApp(runtimeConfig, {
     authService,
     transferWorkflowService: workflow,
     quoteWorkflowService: quoteWorkflow,
-    fundingWorkflowService: fundingWorkflow
+    fundingWorkflowService: fundingWorkflow,
+    payoutWorkflowService: payoutWorkflow
   });
 
   async function createUser(
@@ -940,5 +948,116 @@ integrationDescribe("recipient and transfer workflow", () => {
     const rejected = await request(app).post(`/operations/transfers/${transferId}/funding-proofs/${second.body.proof.id}/review`).set(authenticated(staffToken)).send({ decision: "REJECT", reason: "Reference belongs to another payment" });
     expect(rejected.body.transferStatus).toBe("FUNDING_PENDING");
     expect((await database.transferRequest.findUniqueOrThrow({ where: { id: transferId } })).status).not.toBe(TransferStatus.FUNDS_CONFIRMED);
+  });
+
+  it("manages an internal payout case, private evidence, holds, and an exact payout report", async () => {
+    const sender = await createUser("payout-sender@example.com", Role.SENDER);
+    const otherSender = await createUser("payout-other@example.com", Role.SENDER);
+    const admin = await createUser("payout-admin@example.com", Role.ADMIN);
+    const staff = await createUser("payout-staff@example.com", Role.STAFF);
+    const payoutOnlyStaff = await createUser("payout-only@example.com", Role.STAFF);
+    const unprivileged = await createUser("payout-unprivileged@example.com", Role.STAFF);
+    await database.staffCapabilityGrant.createMany({
+      data: [Capability.TRANSFER_REVIEW, Capability.QUOTE_MANAGE, Capability.PAYOUT_MANAGE, Capability.TRANSFER_HOLD, Capability.ASSOCIATE_VIEW, Capability.ASSOCIATE_MANAGE].map((capability) => ({
+        staffUserId: staff.id,
+        capability,
+        grantedByUserId: admin.id,
+        reason: "Payout workflow test"
+      }))
+    });
+    await database.staffCapabilityGrant.create({ data: { staffUserId: payoutOnlyStaff.id, capability: Capability.PAYOUT_MANAGE, grantedByUserId: admin.id, reason: "Payout without hold capability" } });
+    const senderToken = await accessToken(sender.email);
+    const otherToken = await accessToken(otherSender.email);
+    const staffToken = await accessToken(staff.email);
+    const payoutOnlyToken = await accessToken(payoutOnlyStaff.email);
+    const unprivilegedToken = await accessToken(unprivileged.email);
+
+    expect((await request(app).post("/operations/associates").set(authenticated(unprivilegedToken)).send({})).status).toBe(403);
+    const associate = await request(app).post("/operations/associates").set(authenticated(staffToken)).send({
+      businessName: "Manila Trusted Payout Desk",
+      countries: ["ph"],
+      cities: ["Manila"],
+      payoutMethods: ["BANK_TRANSFER"],
+      currencies: ["php"],
+      contactChannels: { operationsEmail: "ops@example.test", phone: "+639171234567" },
+      trustNotes: "Verified through internal onboarding"
+    });
+    expect(associate.status).toBe(201);
+    expect(associate.body.associate).toMatchObject({ countries: ["PH"], currencies: ["PHP"], status: "ACTIVE" });
+
+    const transferId = await createAcceptedTransfer(senderToken, staffToken);
+    const deadline = new Date(now.getTime() + 86_400_000).toISOString();
+    expect((await request(app).post(`/operations/transfers/${transferId}/payout-case`).set(authenticated(staffToken)).send({ expectedBy: deadline })).status).toBe(409);
+    await database.transferRequest.update({ where: { id: transferId }, data: { status: TransferStatus.FUNDS_CONFIRMED } });
+    expect((await request(app).post(`/operations/transfers/${transferId}/payout-case`).set(authenticated(unprivilegedToken)).send({ expectedBy: deadline })).status).toBe(403);
+    const created = await request(app).post(`/operations/transfers/${transferId}/payout-case`).set(authenticated(staffToken)).send({
+      associateContactId: associate.body.associate.id,
+      expectedBy: deadline,
+      internalNote: "Coordinate externally after evidence is received",
+      senderFacingNote: "Your payout is being coordinated."
+    });
+    expect(created.status).toBe(201);
+    expect(created.body).toMatchObject({
+      transferStatus: "PAYOUT_IN_PROGRESS",
+      payoutCase: { amountMinor: "1852813", currency: "PHP", payoutMethod: "BANK_TRANSFER", status: "IN_PROGRESS" }
+    });
+    const operationsView = await request(app).get(`/operations/transfers/${transferId}/payout`).set(authenticated(staffToken));
+    expect(operationsView.body.payoutCase.staffOwner).toMatchObject({ id: staff.id, fullName: "STAFF Test User" });
+    expect((await request(app).post(`/operations/transfers/${transferId}/payout-case`).set(authenticated(staffToken)).send({ expectedBy: deadline })).status).toBe(409);
+
+    expect((await request(app).get(`/transfers/${transferId}/payout`).set(authenticated(otherToken))).status).toBe(404);
+    const senderView = await request(app).get(`/transfers/${transferId}/payout`).set(authenticated(senderToken));
+    expect(senderView.body).toMatchObject({ transferStatus: "PAYOUT_IN_PROGRESS", payout: { amountMinor: "1852813", currency: "PHP", status: "IN_PROGRESS" } });
+    expect(JSON.stringify(senderView.body)).not.toMatch(/Manila Trusted|operationsEmail|externalReference|internalNote|staffOwnerId|evidence/i);
+
+    const receipt = Buffer.from("%PDF-1.4\npayout receipt\n%%EOF", "utf8");
+    const evidence = await request(app).post(`/operations/transfers/${transferId}/payout-evidence`).set(authenticated(staffToken)).send({
+      externalReference: "PAYOUT-EXT-100",
+      attachment: { filename: "payout.pdf", contentType: "application/pdf", sizeBytes: receipt.byteLength }
+    });
+    expect(evidence.status).toBe(201);
+    const uploadUrl = new URL(evidence.body.upload.url);
+    uploadUrl.searchParams.set("signature", "A".repeat(43));
+    expect((await request(app).put(`${uploadUrl.pathname}${uploadUrl.search}`).set("Content-Type", "application/pdf").send(receipt)).status).toBe(403);
+    const validUploadUrl = new URL(evidence.body.upload.url);
+    expect((await request(app).put(`${validUploadUrl.pathname}${validUploadUrl.search}`).set("Content-Type", "application/pdf").send(receipt)).status).toBe(200);
+    const evidenceId = evidence.body.evidence.id as string;
+    expect((await request(app).post(`/operations/transfers/${transferId}/payout-evidence/${evidenceId}/read-url`).set(authenticated(unprivilegedToken)).send({})).status).toBe(403);
+    const readGrant = await request(app).post(`/operations/transfers/${transferId}/payout-evidence/${evidenceId}/read-url`).set(authenticated(staffToken)).send({});
+    const readUrl = new URL(readGrant.body.url);
+    const download = await request(app).get(`${readUrl.pathname}${readUrl.search}`);
+    expect(download.status).toBe(200);
+    expect(download.headers["cache-control"]).toContain("no-store");
+    expect(Buffer.compare(download.body as Buffer, receipt)).toBe(0);
+
+    expect((await request(app).post(`/operations/transfers/${transferId}/payout-hold`).set(authenticated(payoutOnlyToken)).send({ reason: "Unauthorized hold" })).status).toBe(403);
+    await database.associateContact.update({ where: { id: associate.body.associate.id }, data: { status: "SUSPENDED" } });
+    expect((await request(app).post(`/operations/transfers/${transferId}/payout-report`).set(authenticated(staffToken)).send({ completedAmountMinor: "1852813", currency: "PHP", completedAt: now.toISOString() })).status).toBe(400);
+    await database.associateContact.update({ where: { id: associate.body.associate.id }, data: { status: "ACTIVE" } });
+    const held = await request(app).post(`/operations/transfers/${transferId}/payout-hold`).set(authenticated(staffToken)).send({ reason: "Associate requested callback", senderFacingNote: "The payout needs an additional operational check." });
+    expect(held.body).toMatchObject({ transferStatus: "ON_HOLD", payoutCase: { status: "ON_HOLD" } });
+    expect((await request(app).post(`/operations/transfers/${transferId}/payout-report`).set(authenticated(staffToken)).send({ completedAmountMinor: "1852813", currency: "PHP", completedAt: now.toISOString() })).status).toBe(409);
+    const released = await request(app).post(`/operations/transfers/${transferId}/payout-release`).set(authenticated(staffToken)).send({ reason: "Callback completed", senderFacingNote: "Your payout is moving again." });
+    expect(released.body).toMatchObject({ transferStatus: "PAYOUT_IN_PROGRESS", payoutCase: { status: "IN_PROGRESS" } });
+
+    expect((await request(app).post(`/operations/transfers/${transferId}/payout-report`).set(authenticated(staffToken)).send({ completedAmountMinor: "1", currency: "PHP", completedAt: now.toISOString() })).status).toBe(409);
+    const reported = await request(app).post(`/operations/transfers/${transferId}/payout-report`).set(authenticated(staffToken)).send({
+      completedAmountMinor: "1852813",
+      currency: "PHP",
+      completedAt: now.toISOString(),
+      senderFacingNote: "The payout has been sent to your recipient."
+    });
+    expect(reported.body).toMatchObject({ transferStatus: "PAYOUT_REPORTED", payoutCase: { status: "REPORTED", completedAmountMinor: "1852813", completedCurrency: "PHP" } });
+    expect((await database.transferRequest.findUniqueOrThrow({ where: { id: transferId } })).status).toBe(TransferStatus.PAYOUT_REPORTED);
+    await expect(database.payoutCase.update({ where: { id: created.body.payoutCase.id }, data: { amountMinor: 1n } })).rejects.toThrow(/financial snapshot is immutable/i);
+    await expect(database.payoutEvidence.update({ where: { id: evidenceId }, data: { externalReference: "rewritten" } })).rejects.toThrow(/evidence snapshot is immutable/i);
+    await expect(database.payoutEvidence.delete({ where: { id: evidenceId } })).rejects.toThrow(/history cannot be deleted/i);
+    expect((await request(app).post(`/operations/transfers/${transferId}/payout-evidence`).set(authenticated(staffToken)).send({ externalReference: "LATE" })).status).toBe(409);
+
+    const senderReported = await request(app).get(`/transfers/${transferId}/payout`).set(authenticated(senderToken));
+    expect(senderReported.body).toMatchObject({ transferStatus: "PAYOUT_REPORTED", payout: { status: "REPORTED", completedAt: now.toISOString() } });
+    expect(JSON.stringify(senderReported.body)).not.toMatch(/PAYOUT-EXT-100|Manila Trusted|ops@example|internal/i);
+    const actions = await database.activityEvent.findMany({ where: { entityId: { in: [transferId, evidenceId, associate.body.associate.id, Capability.PAYOUT_MANAGE] } }, select: { actionType: true } });
+    expect(actions.map((event) => event.actionType)).toEqual(expect.arrayContaining(["AUTHORIZATION_DENIED", "ASSOCIATE_CONTACT_CREATED", "PAYOUT_STARTED", "PAYOUT_EVIDENCE_RECORDED", "PAYOUT_ON_HOLD", "PAYOUT_HOLD_RELEASED", "PAYOUT_REPORTED"]));
   });
 });

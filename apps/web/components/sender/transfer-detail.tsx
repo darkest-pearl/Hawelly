@@ -15,6 +15,7 @@ import { Button } from "../ui/button";
 import { StatusBadge } from "../ui/status-badge";
 import { SenderShell } from "./sender-shell";
 import { FundingPanel } from "./funding-panel";
+import { PayoutPanel } from "./payout-panel";
 
 type DetailedTransfer = TransferRecord & { timeline: TransferTimelineItem[] };
 
@@ -106,8 +107,9 @@ export function TransferDetail({ transferId }: { transferId: string }) {
             const quote = quotes.find((item) => item.status === "SENT")!;
             return <section className="active-quote" aria-labelledby="active-quote-title"><div className="active-quote-heading"><StatusBadge label="Ready" tone="success" /><h2 id="active-quote-title">Your quote</h2></div><dl className="quote-economics"><div><dt>You send</dt><dd>{formatMinorAmount(quote.sendAmountMinor, quote.sendCurrency)}</dd></div><div><dt>Fee</dt><dd>{formatMinorAmount(quote.feeAmountMinor, quote.sendCurrency)}</dd></div><div><dt>Recipient gets</dt><dd>{formatMinorAmount(quote.receiveAmountMinor, quote.receiveCurrency)}</dd></div><div><dt>Rate</dt><dd>{quote.effectiveRate}</dd></div></dl><dl className="detail-summary-grid quote-timing"><div><dt>Expected by</dt><dd>{new Date(quote.expectedDeliveryAt).toLocaleString()}</dd></div><div><dt>Quote expires</dt><dd>{new Date(quote.expiresAt).toLocaleString()}</dd></div></dl>{quote.senderFacingNote ? <p>{quote.senderFacingNote}</p> : null}<div className="quote-actions"><Button disabled={deciding} onClick={() => void decide(quote, "REJECT")} variant="outline">Reject</Button><Button disabled={deciding} onClick={() => void decide(quote, "ACCEPT")}>{deciding ? "Applyingâ€¦" : "Accept quote"}</Button></div></section>;
           })() : null}
-          {!quotes.some((quote) => quote.status === "SENT") && quotes[0] ? <section className="active-quote"><div className="active-quote-heading"><StatusBadge {...transferStatus(transfer.status)} /><h2>Quote version {quotes[0].version}</h2></div><p>{quotes[0].status === "ACCEPTED" ? transfer.status === "QUOTE_ACCEPTED" ? "You accepted this quote. Funding instructions will appear next." : "This accepted quote is locked to the funding workflow below." : `This quote is ${quotes[0].status.toLowerCase()}.`}</p></section> : null}
+          {!quotes.some((quote) => quote.status === "SENT") && quotes[0] ? <section className="active-quote"><div className="active-quote-heading"><StatusBadge label={quotes[0].status === "ACCEPTED" ? "Accepted" : quotes[0].status.toLowerCase()} tone={quotes[0].status === "ACCEPTED" ? "success" : "neutral"} /><h2>Quote version {quotes[0].version}</h2></div><p>{quotes[0].status === "ACCEPTED" ? transfer.status === "QUOTE_ACCEPTED" ? "You accepted this quote. Funding instructions will appear next." : "This accepted quote is locked to the funding workflow below." : `This quote is ${quotes[0].status.toLowerCase()}.`}</p></section> : null}
           <FundingPanel onStatus={(status) => setTransfer((current) => current ? { ...current, status } : current)} transferId={transfer.id} transferStatus={transfer.status} />
+          <PayoutPanel transferId={transfer.id} transferStatus={transfer.status} />
           <section className="transfer-timeline" aria-labelledby="timeline-title"><h2 id="timeline-title">Activity</h2><ol>{transfer.timeline.map((item, index) => <li key={`${item.occurredAt}-${index}`}><span className="timeline-dot" /><div><strong>{item.status ? transferStatus(item.status).label : item.type}</strong><time dateTime={item.occurredAt}>{new Date(item.occurredAt).toLocaleString()}</time>{item.reason ? <p>{item.reason}</p> : null}</div></li>)}</ol></section>
         </>
       ) : null}

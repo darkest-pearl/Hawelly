@@ -4,7 +4,7 @@ import { mkdir, open, stat, unlink } from "node:fs/promises";
 import { dirname, resolve, sep } from "node:path";
 import { PublicApiError } from "../http/errors.js";
 
-const OBJECT_KEY = /^transfers\/[0-9a-f-]{36}\/funding\/[0-9a-f-]{36}\/proof\.(pdf|jpg|png)$/;
+const OBJECT_KEY = /^transfers\/[0-9a-f-]{36}\/(funding\/[0-9a-f-]{36}\/proof|payout\/[0-9a-f-]{36}\/evidence)\.(pdf|jpg|png)$/;
 
 export type EvidenceOperation = "upload" | "download";
 

@@ -25,12 +25,19 @@ import {
   createSenderFundingRouter
 } from "./funding/router.js";
 import type { FundingWorkflowService } from "./funding/service.js";
+import {
+  createOperationsPayoutRouter,
+  createPayoutEvidenceRouter,
+  createSenderPayoutRouter
+} from "./payout/router.js";
+import type { PayoutWorkflowService } from "./payout/service.js";
 
 export interface AppDependencies {
   authService?: AuthService;
   transferWorkflowService?: TransferWorkflowService;
   quoteWorkflowService?: QuoteWorkflowService;
   fundingWorkflowService?: FundingWorkflowService;
+  payoutWorkflowService?: PayoutWorkflowService;
   readinessCheck?: () => Promise<void>;
 }
 
@@ -108,6 +115,9 @@ export function createApp(
   if (dependencies.fundingWorkflowService) {
     app.use("/evidence", createEvidenceRouter(dependencies.fundingWorkflowService));
   }
+  if (dependencies.payoutWorkflowService) {
+    app.use("/evidence", createPayoutEvidenceRouter(dependencies.payoutWorkflowService));
+  }
 
   if (dependencies.authService) {
     app.use("/auth", createAuthRouter(dependencies.authService));
@@ -134,6 +144,16 @@ export function createApp(
             dependencies.authService,
             dependencies.fundingWorkflowService
           )
+        );
+      }
+      if (dependencies.payoutWorkflowService) {
+        app.use(
+          "/transfers",
+          createSenderPayoutRouter(dependencies.authService, dependencies.payoutWorkflowService)
+        );
+        app.use(
+          "/operations",
+          createOperationsPayoutRouter(dependencies.authService, dependencies.payoutWorkflowService)
         );
       }
       app.use(

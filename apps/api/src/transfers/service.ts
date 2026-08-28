@@ -37,7 +37,11 @@ const SENDER_TIMELINE_ACTIONS = [
   "FUNDING_PROOF_RESUBMISSION_REQUESTED",
   "FUNDING_PROOF_REJECTED",
   "FUNDING_PROOF_VERIFIED",
-  "FUNDS_RECEIVED_CONFIRMED"
+  "FUNDS_RECEIVED_CONFIRMED",
+  "PAYOUT_STARTED",
+  "PAYOUT_REPORTED",
+  "PAYOUT_ON_HOLD",
+  "PAYOUT_HOLD_RELEASED"
 ] as const;
 
 type Clock = () => Date;
@@ -707,7 +711,10 @@ export class TransferWorkflowService {
             TransferStatus.QUOTE_ACCEPTED,
             TransferStatus.FUNDING_PENDING,
             TransferStatus.FUNDING_SUBMITTED,
-            TransferStatus.FUNDS_CONFIRMED
+            TransferStatus.FUNDS_CONFIRMED,
+            TransferStatus.PAYOUT_IN_PROGRESS,
+            TransferStatus.PAYOUT_REPORTED,
+            TransferStatus.ON_HOLD
           ]
         }
       },

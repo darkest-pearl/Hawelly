@@ -19,8 +19,12 @@ describe("web backend boundary policy", () => {
     [`transfers/${id}/funding`, "GET"],
     [`transfers/${id}/funding-proofs`, "POST"],
     [`transfers/${id}/funding-proofs/${id}/read-url`, "POST"],
+    [`transfers/${id}/payout`, "GET"],
     ["operations/transfers", "GET"],
     ["operations/funding-templates", "GET"],
+    ["operations/associates", "GET"],
+    ["operations/associates", "POST"],
+    [`operations/associates/${id}`, "PATCH"],
     [`operations/transfers/${id}/review`, "POST"],
     [`operations/transfers/${id}/quotes`, "POST"],
     [`operations/transfers/${id}/quotes/${id}/send`, "POST"],
@@ -28,7 +32,15 @@ describe("web backend boundary policy", () => {
     [`operations/transfers/${id}/funding-instruction`, "POST"],
     [`operations/transfers/${id}/funding-proofs/${id}/read-url`, "POST"],
     [`operations/transfers/${id}/funding-proofs/${id}/review`, "POST"],
-    [`operations/transfers/${id}/funds-confirmation`, "POST"]
+    [`operations/transfers/${id}/funds-confirmation`, "POST"],
+    [`operations/transfers/${id}/payout`, "GET"],
+    [`operations/transfers/${id}/payout-case`, "POST"],
+    [`operations/transfers/${id}/payout-case`, "PATCH"],
+    [`operations/transfers/${id}/payout-evidence`, "POST"],
+    [`operations/transfers/${id}/payout-evidence/${id}/read-url`, "POST"],
+    [`operations/transfers/${id}/payout-report`, "POST"],
+    [`operations/transfers/${id}/payout-hold`, "POST"],
+    [`operations/transfers/${id}/payout-release`, "POST"]
   ])("allows %s %s", (path, method) => {
     expect(isAllowedBackendRequest(path, method)).toBe(true);
   });

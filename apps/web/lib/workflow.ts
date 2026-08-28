@@ -116,6 +116,72 @@ export interface FundingState {
   proofs: FundingProofRecord[];
 }
 
+export interface AssociateRecord {
+  id: string;
+  businessName: string;
+  countries: string[];
+  cities: string[];
+  payoutMethods: PayoutMethod[];
+  currencies: string[];
+  contactChannels: Record<string, string>;
+  trustNotes: string | null;
+  status: "ACTIVE" | "INACTIVE" | "SUSPENDED";
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PayoutEvidenceRecord {
+  id: string;
+  payoutCaseId: string;
+  externalReference: string | null;
+  hasAttachment: boolean;
+  originalFilename: string | null;
+  contentType: string | null;
+  sizeBytes: string | null;
+  uploadExpiresAt: string | null;
+  uploadedAt: string | null;
+  createdAt: string;
+}
+
+export interface PayoutCaseRecord {
+  id: string;
+  transferRequestId: string;
+  staffOwnerId: string;
+  staffOwner: { id: string; fullName: string } | null;
+  associateContactId: string | null;
+  amountMinor: string;
+  currency: string;
+  payoutMethod: PayoutMethod;
+  expectedBy: string;
+  status: "PENDING" | "IN_PROGRESS" | "REPORTED" | "COMPLETED" | "ON_HOLD" | "FAILED";
+  externalReference: string | null;
+  internalNote: string | null;
+  senderFacingNote: string | null;
+  completedAmountMinor: string | null;
+  completedCurrency: string | null;
+  completedAt: string | null;
+  associate: AssociateRecord | null;
+  evidence: PayoutEvidenceRecord[];
+}
+
+export interface OperationsPayoutState {
+  transferStatus: string;
+  payoutCase: PayoutCaseRecord | null;
+}
+
+export interface SenderPayoutState {
+  transferStatus: string;
+  payout: null | {
+    status: PayoutCaseRecord["status"];
+    amountMinor: string;
+    currency: string;
+    payoutMethod: PayoutMethod;
+    expectedBy: string;
+    senderFacingNote: string | null;
+    completedAt: string | null;
+  };
+}
+
 export const payoutMethodLabels: Record<PayoutMethod, string> = {
   BANK_TRANSFER: "Bank transfer",
   CASH_PICKUP: "Cash pickup",
@@ -153,6 +219,11 @@ export function transferStatus(status: string): {
     FUNDING_PENDING: "Funding needed",
     FUNDING_SUBMITTED: "Funding under review",
     FUNDS_CONFIRMED: "Funds confirmed",
+    PAYOUT_IN_PROGRESS: "Payout in progress",
+    PAYOUT_REPORTED: "Payout sent",
+    CONFIRMATION_PENDING: "Confirmation needed",
+    COMPLETED: "Completed",
+    ON_HOLD: "On hold",
     SUBMITTED: "Funding proof submitted",
     NEEDS_RESUBMISSION: "Funding proof needs resubmission",
     VERIFIED: "Funding proof verified",
@@ -164,8 +235,10 @@ export function transferStatus(status: string): {
   const tone: TransferTone =
     status === "DECLINED" || status === "CANCELLED" || status === "QUOTE_EXPIRED"
       ? "neutral"
-      : status === "NEEDS_INFO"
+      : status === "NEEDS_INFO" || status === "ON_HOLD"
         ? "warning"
+        : status === "PAYOUT_REPORTED" || status === "COMPLETED"
+          ? "success"
         : "info";
   return {
     label: labels[status] || status.toLowerCase().replaceAll("_", " "),
