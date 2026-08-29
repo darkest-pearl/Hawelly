@@ -16,6 +16,79 @@ export interface RuntimeConfig {
   environment: string;
   corsOrigins: readonly string[];
   trustedBffAddresses: readonly string[];
+  androidUpdate: AndroidUpdateConfig;
+}
+
+export interface AndroidUpdateConfig {
+  latestVersionCode: number;
+  latestVersionName: string;
+  minimumSupportedVersionCode: number;
+  downloadUrl: string | null;
+  sha256: string | null;
+  releaseNotes: string | null;
+}
+
+function parsePositiveInteger(name: string, value: string | undefined, fallback: number) {
+  const candidate = value?.trim() || String(fallback);
+  if (!/^\d+$/.test(candidate)) {
+    throw new Error(`${name} must be a positive integer`);
+  }
+  const parsed = Number(candidate);
+  if (!Number.isSafeInteger(parsed) || parsed < 1) {
+    throw new Error(`${name} must be a positive integer`);
+  }
+  return parsed;
+}
+
+function parseAndroidUpdateConfig(environment: NodeJS.ProcessEnv): AndroidUpdateConfig {
+  const latestVersionCode = parsePositiveInteger(
+    "ANDROID_UPDATE_LATEST_VERSION_CODE",
+    environment.ANDROID_UPDATE_LATEST_VERSION_CODE,
+    1
+  );
+  const minimumSupportedVersionCode = parsePositiveInteger(
+    "ANDROID_UPDATE_MINIMUM_SUPPORTED_VERSION_CODE",
+    environment.ANDROID_UPDATE_MINIMUM_SUPPORTED_VERSION_CODE,
+    1
+  );
+  if (minimumSupportedVersionCode > latestVersionCode) {
+    throw new Error("Android minimum supported version cannot exceed latest version");
+  }
+
+  const latestVersionName = environment.ANDROID_UPDATE_LATEST_VERSION_NAME?.trim() || "1.0.0";
+  if (latestVersionName.length > 64 || !/^[0-9A-Za-z][0-9A-Za-z._+-]*$/.test(latestVersionName)) {
+    throw new Error("ANDROID_UPDATE_LATEST_VERSION_NAME is invalid");
+  }
+
+  const rawDownloadUrl = environment.ANDROID_UPDATE_DOWNLOAD_URL?.trim();
+  let downloadUrl: string | null = null;
+  if (rawDownloadUrl) {
+    const parsed = new URL(rawDownloadUrl);
+    if (parsed.protocol !== "https:" || parsed.username || parsed.password) {
+      throw new Error("ANDROID_UPDATE_DOWNLOAD_URL must be an HTTPS URL without credentials");
+    }
+    downloadUrl = parsed.toString();
+  }
+
+  const rawSha256 = environment.ANDROID_UPDATE_SHA256?.trim().toLowerCase();
+  const sha256 = rawSha256 || null;
+  if ((downloadUrl === null) !== (sha256 === null) || (sha256 && !/^[a-f0-9]{64}$/.test(sha256))) {
+    throw new Error("Android update URL and a valid SHA-256 digest must be configured together");
+  }
+
+  const releaseNotes = environment.ANDROID_UPDATE_RELEASE_NOTES?.trim() || null;
+  if (releaseNotes && releaseNotes.length > 2_000) {
+    throw new Error("ANDROID_UPDATE_RELEASE_NOTES must be 2000 characters or fewer");
+  }
+
+  return {
+    latestVersionCode,
+    latestVersionName,
+    minimumSupportedVersionCode,
+    downloadUrl,
+    sha256,
+    releaseNotes
+  };
 }
 
 function parseTrustedBffAddresses(value: string | undefined) {
@@ -72,6 +145,7 @@ export function resolveRuntimeConfig(
     corsOrigins: parseCorsOrigins(environment.CORS_ORIGINS),
     trustedBffAddresses: parseTrustedBffAddresses(
       environment.TRUSTED_BFF_ADDRESSES
-    )
+    ),
+    androidUpdate: parseAndroidUpdateConfig(environment)
   };
 }
