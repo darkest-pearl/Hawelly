@@ -77,6 +77,12 @@ integrationDescribe("recipient and transfer workflow", () => {
     database,
     {
       quoteSlaMinutes: 45,
+      maximumRecipientsPerSender: 100,
+      recipientCreateWindowSeconds: 3_600,
+      recipientCreateMaximum: 100,
+      maximumActiveTransfersPerSender: 100,
+      transferCreateWindowSeconds: 3_600,
+      transferCreateMaximum: 100,
       corridors: [
         {
           originCountry: "AE",
@@ -354,6 +360,54 @@ integrationDescribe("recipient and transfer workflow", () => {
         accountNumber: "639171234567"
       }
     });
+  });
+
+  it("serializes and enforces sender write velocity and active-work quotas", async () => {
+    await createUser("quota-sender@example.com", Role.SENDER);
+    const token = await accessToken("quota-sender@example.com");
+    const limitedWorkflow = new TransferWorkflowService(database, {
+      quoteSlaMinutes: 45,
+      maximumRecipientsPerSender: 10,
+      recipientCreateWindowSeconds: 3_600,
+      recipientCreateMaximum: 1,
+      maximumActiveTransfersPerSender: 1,
+      transferCreateWindowSeconds: 3_600,
+      transferCreateMaximum: 10,
+      corridors: [{
+        originCountry: "AE",
+        destinationCountry: "PH",
+        sendCurrencies: ["AED"],
+        payoutMethods: [PayoutMethod.BANK_TRANSFER]
+      }]
+    });
+    const limitedApp = createApp(runtimeConfig, {
+      authService,
+      transferWorkflowService: limitedWorkflow
+    });
+    const recipientResponses = await Promise.all([
+      request(limitedApp).post("/recipients").set(authenticated(token)).send(recipientInput),
+      request(limitedApp).post("/recipients").set(authenticated(token)).send(recipientInput)
+    ]);
+    expect(recipientResponses.map(({ status }) => status).sort()).toEqual([201, 429]);
+    const limited = recipientResponses.find(({ status }) => status === 429);
+    expect(limited?.headers["retry-after"]).toBe("3600");
+    const recipientId = recipientResponses.find(({ status }) => status === 201)?.body.recipient.id as string;
+    const transferInput = {
+      recipientId,
+      originCountry: "AE",
+      destinationCountry: "PH",
+      sendAmountMinor: "125000",
+      sendCurrency: "AED",
+      requestedPayoutMethod: PayoutMethod.BANK_TRANSFER
+    };
+    const transferResponses = await Promise.all([
+      request(limitedApp).post("/transfers").set(authenticated(token)).send(transferInput),
+      request(limitedApp).post("/transfers").set(authenticated(token)).send(transferInput)
+    ]);
+    expect(transferResponses.map(({ status }) => status).sort()).toEqual([201, 409]);
+    expect(transferResponses.find(({ status }) => status === 409)?.body.error.code).toBe(
+      "ACTIVE_TRANSFER_LIMIT_REACHED"
+    );
   });
 
   it("creates a deterministic request snapshot and exposes a redacted staff queue", async () => {

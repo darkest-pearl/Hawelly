@@ -71,6 +71,10 @@ const app = createApp(config, {
 const server = app.listen(config.port, config.host, () => {
   console.log(`Hawelly API listening on http://${config.host}:${config.port}`);
 });
+server.headersTimeout = 15_000;
+server.requestTimeout = 30_000;
+server.keepAliveTimeout = 5_000;
+server.maxRequestsPerSocket = 1_000;
 
 async function shutdown() {
   server.close(async () => {

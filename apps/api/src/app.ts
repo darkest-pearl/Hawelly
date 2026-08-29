@@ -10,7 +10,7 @@ import {
   type RuntimeConfig
 } from "./config.js";
 import { createRequestContextMiddleware } from "./middleware/requestContext.js";
-import { apiErrorResponse } from "./http/errors.js";
+import { apiErrorResponse, requestBodyErrorResponse } from "./http/errors.js";
 import {
   createOperationsTransfersRouter,
   createRecipientsRouter,
@@ -60,6 +60,7 @@ const errorHandler: ErrorRequestHandler = (
   void _next;
   if (authErrorResponse(error, response)) return;
   if (apiErrorResponse(error, response)) return;
+  if (requestBodyErrorResponse(error, response)) return;
   response.status(500).json({ error: "Internal server error" });
 };
 
@@ -71,6 +72,20 @@ export function createApp(
 
   app.disable("x-powered-by");
   app.set("trust proxy", false);
+  app.use((_request, response, next) => {
+    response.set({
+      "Cache-Control": "no-store",
+      "Content-Security-Policy": "default-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+      "Permissions-Policy": "camera=(), geolocation=(), microphone=()",
+      "Referrer-Policy": "no-referrer",
+      "X-Content-Type-Options": "nosniff",
+      "X-Frame-Options": "DENY"
+    });
+    if (config.environment === "production") {
+      response.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+    }
+    next();
+  });
   app.use(createRequestContextMiddleware(config.trustedBffAddresses));
   app.use(
     cors({

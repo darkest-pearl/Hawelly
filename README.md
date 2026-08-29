@@ -126,7 +126,7 @@ session-storage, and update-distribution requirements.
 
 ## Status
 
-Milestones 0 through 9 are complete. The working product now includes
+Milestones 0 through 10 are complete. The working product now includes
 sender-scoped recipient management, transfer requests, sender timelines, and
 the staff new-request review queue, plus versioned staff quotes and sender
 acceptance/rejection. Staff can now publish accepted-quote-derived funding
@@ -146,4 +146,7 @@ access and recipient management through transfer request, quote decision,
 funding proof, payout tracking, recipient confirmation, and dispute support.
 It also consumes integrity-aware public update metadata without adding an
 agent mode or any crypto, wallet, float, commission, settlement-batch, or
-reconciliation architecture.
+reconciliation architecture. The production boundary now also includes
+deny-by-default PostgreSQL privileges, strong and separated server secrets,
+private evidence filesystem modes, bounded sender resource creation, audit
+redaction, HTTP request hardening, and a build-time client-secret gate.

@@ -6,6 +6,12 @@ describe("transfer workflow configuration", () => {
   it("provides the explicit beta corridor and 45-minute quote SLA", () => {
     expect(resolveTransferWorkflowConfig({})).toEqual({
       quoteSlaMinutes: 45,
+      maximumRecipientsPerSender: 100,
+      recipientCreateWindowSeconds: 3_600,
+      recipientCreateMaximum: 20,
+      maximumActiveTransfersPerSender: 20,
+      transferCreateWindowSeconds: 3_600,
+      transferCreateMaximum: 10,
       corridors: [
         {
           originCountry: "AE",
@@ -35,6 +41,12 @@ describe("transfer workflow configuration", () => {
     });
     expect(config).toEqual({
       quoteSlaMinutes: 45,
+      maximumRecipientsPerSender: 100,
+      recipientCreateWindowSeconds: 3_600,
+      recipientCreateMaximum: 20,
+      maximumActiveTransfersPerSender: 20,
+      transferCreateWindowSeconds: 3_600,
+      transferCreateMaximum: 10,
       corridors: [
         {
           originCountry: "AE",
@@ -80,5 +92,10 @@ describe("transfer workflow configuration", () => {
         ])
       })
     ).toThrow("duplicate corridor");
+  });
+
+  it("validates sender write quotas", () => {
+    expect(() => resolveTransferWorkflowConfig({ SENDER_RECIPIENT_LIMIT: "0" })).toThrow("SENDER_RECIPIENT_LIMIT");
+    expect(() => resolveTransferWorkflowConfig({ SENDER_TRANSFER_CREATE_MAX: "unlimited" })).toThrow("SENDER_TRANSFER_CREATE_MAX");
   });
 });

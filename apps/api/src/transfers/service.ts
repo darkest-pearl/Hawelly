@@ -23,6 +23,14 @@ import {
 import { parsePayoutDetails } from "./validation.js";
 
 const MAX_POSTGRES_BIGINT = 9_223_372_036_854_775_807n;
+const TERMINAL_TRANSFER_STATUSES = [
+  TransferStatus.COMPLETED,
+  TransferStatus.DECLINED,
+  TransferStatus.QUOTE_EXPIRED,
+  TransferStatus.CANCELLED,
+  TransferStatus.REFUNDED,
+  TransferStatus.FAILED
+] as const;
 const SENDER_TIMELINE_ACTIONS = [
   "TRANSFER_REQUEST_CREATED",
   "TRANSFER_REQUEST_CANCELLED",
@@ -216,6 +224,7 @@ export class TransferWorkflowService {
     if (!active) return { workflow: this.config, transferLimits: {} };
     return {
       workflow: {
+        ...this.config,
         quoteSlaMinutes: active.quoteSlaMinutes,
         corridors: active.supportedOriginCountries.flatMap((originCountry) =>
           active.supportedDestinationCountries.map((destinationCountry) => ({
@@ -325,6 +334,35 @@ export class TransferWorkflowService {
     }
     const payoutDetails = parsePayoutDetails(input.payoutMethod, input.payoutDetails);
     const recipient = await this.database.$transaction(async (transaction) => {
+      await transaction.$queryRaw`
+        WITH acquired AS MATERIALIZED (
+          SELECT pg_advisory_xact_lock(hashtextextended(${`sender-write:${principal.userId}`}, 0))
+        )
+        SELECT 1 AS "acquired" FROM acquired
+      `;
+      const windowStartedAt = new Date(
+        this.clock().getTime() - this.config.recipientCreateWindowSeconds * 1_000
+      );
+      const recipientCount = await transaction.recipient.count({
+        where: { ownerSenderId: principal.userId }
+      });
+      const recentRecipientCount = await transaction.recipient.count({
+        where: {
+          ownerSenderId: principal.userId,
+          createdAt: { gte: windowStartedAt }
+        }
+      });
+      if (recipientCount >= this.config.maximumRecipientsPerSender) {
+        throw new PublicApiError(409, "RECIPIENT_LIMIT_REACHED", "Recipient limit reached");
+      }
+      if (recentRecipientCount >= this.config.recipientCreateMaximum) {
+        throw new PublicApiError(
+          429,
+          "RECIPIENT_RATE_LIMITED",
+          "Too many recipients were created",
+          this.config.recipientCreateWindowSeconds
+        );
+      }
       const created = await transaction.recipient.create({
         data: {
           ownerSenderId: principal.userId,
@@ -542,6 +580,42 @@ export class TransferWorkflowService {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
         transfer = await this.database.$transaction(async (transaction) => {
+          await transaction.$queryRaw`
+            WITH acquired AS MATERIALIZED (
+              SELECT pg_advisory_xact_lock(hashtextextended(${`sender-write:${principal.userId}`}, 0))
+            )
+            SELECT 1 AS "acquired" FROM acquired
+          `;
+          const windowStartedAt = new Date(
+            now.getTime() - this.config.transferCreateWindowSeconds * 1_000
+          );
+          const activeTransferCount = await transaction.transferRequest.count({
+            where: {
+              senderId: principal.userId,
+              status: { notIn: [...TERMINAL_TRANSFER_STATUSES] }
+            }
+          });
+          const recentTransferCount = await transaction.transferRequest.count({
+            where: {
+              senderId: principal.userId,
+              createdAt: { gte: windowStartedAt }
+            }
+          });
+          if (activeTransferCount >= this.config.maximumActiveTransfersPerSender) {
+            throw new PublicApiError(
+              409,
+              "ACTIVE_TRANSFER_LIMIT_REACHED",
+              "Active transfer limit reached"
+            );
+          }
+          if (recentTransferCount >= this.config.transferCreateMaximum) {
+            throw new PublicApiError(
+              429,
+              "TRANSFER_RATE_LIMITED",
+              "Too many transfers were created",
+              this.config.transferCreateWindowSeconds
+            );
+          }
           const created = await transaction.transferRequest.create({
             data: {
               reference: this.referenceFactory(now),

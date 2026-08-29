@@ -1,4 +1,5 @@
-import { resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
+import { validateStrongSecret } from "../security/secrets.js";
 
 const DEFAULT_MAX_BYTES = 8 * 1024 * 1024;
 const DEFAULT_URL_TTL_SECONDS = 300;
@@ -42,8 +43,18 @@ export function resolveFundingWorkflowConfig(
   workingDirectory = process.cwd()
 ): FundingWorkflowConfig {
   const production = environment.NODE_ENV === "production";
-  const signingSecret = environment.EVIDENCE_SIGNING_SECRET?.trim() || (production ? "" : DEVELOPMENT_SIGNING_SECRET);
-  if (signingSecret.length < 32) throw new Error("EVIDENCE_SIGNING_SECRET must contain at least 32 characters");
+  const signingSecret = validateStrongSecret(
+    environment.EVIDENCE_SIGNING_SECRET?.trim() || (production ? "" : DEVELOPMENT_SIGNING_SECRET),
+    "EVIDENCE_SIGNING_SECRET"
+  );
+  if (
+    [environment.AUTH_ACCESS_SECRET, environment.AUTH_RATE_LIMIT_PEPPER]
+      .map((value) => value?.trim())
+      .filter(Boolean)
+      .includes(signingSecret)
+  ) {
+    throw new Error("EVIDENCE_SIGNING_SECRET must be distinct from authentication secrets");
+  }
   const configuredPublicBaseUrl = environment.EVIDENCE_PUBLIC_BASE_URL?.trim();
   if (production && !configuredPublicBaseUrl) throw new Error("EVIDENCE_PUBLIC_BASE_URL is required in production");
   const publicBaseUrl = exactOrigin(
@@ -55,6 +66,9 @@ export function resolveFundingWorkflowConfig(
   }
   const configuredStorageRoot = environment.EVIDENCE_STORAGE_ROOT?.trim();
   if (production && !configuredStorageRoot) throw new Error("EVIDENCE_STORAGE_ROOT is required in production");
+  if (production && configuredStorageRoot && !isAbsolute(configuredStorageRoot)) {
+    throw new Error("EVIDENCE_STORAGE_ROOT must be absolute in production");
+  }
   return {
     storageRoot: resolve(configuredStorageRoot || resolve(workingDirectory, ".local", "evidence")),
     publicBaseUrl,

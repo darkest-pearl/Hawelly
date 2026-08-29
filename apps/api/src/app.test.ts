@@ -18,6 +18,9 @@ describe("health routes", () => {
     expect(response.type).toBe("application/json");
     expect(response.headers["x-powered-by"]).toBeUndefined();
     expect(response.headers["cache-control"]).toBe("no-store");
+    expect(response.headers["x-content-type-options"]).toBe("nosniff");
+    expect(response.headers["x-frame-options"]).toBe("DENY");
+    expect(response.headers["content-security-policy"]).toContain("default-src 'none'");
     expect(response.body).toEqual({ ok: true, service: "hawelly-api" });
   });
 
@@ -38,6 +41,25 @@ describe("health routes", () => {
 
     expect(response.status).toBe(404);
     expect(response.body).toEqual({ error: "Not found" });
+  });
+
+  it("maps malformed and oversized JSON bodies without exposing parser errors", async () => {
+    const app = createApp(testConfig);
+    const malformed = await request(app)
+      .post("/missing")
+      .set("Content-Type", "application/json")
+      .send('{"broken":');
+    expect(malformed.status).toBe(400);
+    expect(malformed.body).toEqual({
+      error: { code: "INVALID_JSON", message: "Request body must be valid JSON" }
+    });
+
+    const oversized = await request(app)
+      .post("/missing")
+      .set("Content-Type", "application/json")
+      .send(JSON.stringify({ value: "x".repeat(1_048_576) }));
+    expect(oversized.status).toBe(413);
+    expect(oversized.body.error.code).toBe("BODY_TOO_LARGE");
   });
 
   it("returns no-store Android update metadata for the requesting version", async () => {
@@ -109,6 +131,12 @@ describe("runtime configuration", () => {
     expect(() =>
       resolveRuntimeConfig({ TRUSTED_BFF_ADDRESSES: "127.0.0.1/8" })
     ).toThrow("TRUSTED_BFF_ADDRESSES must contain exact peer addresses");
+  });
+
+  it("rejects environment names that could activate development security defaults", () => {
+    expect(() => resolveRuntimeConfig({ NODE_ENV: "prod" })).toThrow(
+      "NODE_ENV must be development, test, or production"
+    );
   });
 
   it("validates Android update integrity metadata", () => {
