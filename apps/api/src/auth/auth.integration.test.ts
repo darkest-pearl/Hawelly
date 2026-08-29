@@ -570,14 +570,21 @@ integrationDescribe("database-backed authentication", () => {
   it("sanitizes sensitive activity metadata recursively", () => {
     const sanitized = sanitizeAuditValue({
       password: "plain",
+      email: "sender@example.com",
       nested: {
         refreshToken: "raw-token",
-        safe: "allowed"
+        safe: "allowed",
+        externalReference: "BANK-REFERENCE-123"
       }
     });
     expect(sanitized).toEqual({
       password: "[REDACTED]",
-      nested: { refreshToken: "[REDACTED]", safe: "allowed" }
+      email: "[REDACTED]",
+      nested: {
+        refreshToken: "[REDACTED]",
+        safe: "allowed",
+        externalReference: "[REDACTED]"
+      }
     });
   });
 

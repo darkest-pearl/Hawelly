@@ -59,6 +59,49 @@ integrationDescribe("database integrity controls", () => {
     ).rejects.toThrow(/immutable/i);
   });
 
+  it("does not grant private schema objects to public or Supabase client roles", async () => {
+    const objectGrants = await database.$queryRaw<
+      Array<{ objectName: string; grantee: string; privilegeType: string }>
+    >`
+      SELECT
+        namespace.nspname || '.' || object.relname AS "objectName",
+        COALESCE(role.rolname, 'PUBLIC') AS grantee,
+        privilege.privilege_type AS "privilegeType"
+      FROM pg_class AS object
+      JOIN pg_namespace AS namespace ON namespace.oid = object.relnamespace
+      CROSS JOIN LATERAL aclexplode(
+        COALESCE(
+          object.relacl,
+          acldefault(
+            CASE WHEN object.relkind = 'S' THEN 'S'::"char" ELSE 'r'::"char" END,
+            object.relowner
+          )
+        )
+      ) AS privilege
+      LEFT JOIN pg_roles AS role ON role.oid = privilege.grantee
+      WHERE namespace.nspname = 'public'
+        AND object.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')
+        AND (privilege.grantee = 0 OR role.rolname IN ('anon', 'authenticated'))
+    `;
+    const schemaGrants = await database.$queryRaw<
+      Array<{ grantee: string; privilegeType: string }>
+    >`
+      SELECT
+        COALESCE(role.rolname, 'PUBLIC') AS grantee,
+        privilege.privilege_type AS "privilegeType"
+      FROM pg_namespace AS namespace
+      CROSS JOIN LATERAL aclexplode(
+        COALESCE(namespace.nspacl, acldefault('n', namespace.nspowner))
+      ) AS privilege
+      LEFT JOIN pg_roles AS role ON role.oid = privilege.grantee
+      WHERE namespace.nspname = 'public'
+        AND (privilege.grantee = 0 OR role.rolname IN ('anon', 'authenticated'))
+    `;
+
+    expect(objectGrants).toEqual([]);
+    expect(schemaGrants).toEqual([]);
+  });
+
   it("prevents financial edits after a quote is accepted", async () => {
     const passwordHash = await hashPassword("SchemaTestPassword123");
     const sender = await database.user.create({

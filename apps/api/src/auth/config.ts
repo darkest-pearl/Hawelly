@@ -1,3 +1,5 @@
+import { readStrongSecret } from "../security/secrets.js";
+
 export interface AuthConfig {
   accessSecret: Uint8Array;
   rateLimitPepper: string;
@@ -33,22 +35,11 @@ function readBoundedInteger(
   return value;
 }
 
-function readSecret(environment: NodeJS.ProcessEnv, name: string) {
-  const value = environment[name]?.trim() || "";
-  if (Buffer.byteLength(value, "utf8") < 32) {
-    throw new Error(`${name} must contain at least 32 bytes`);
-  }
-  if (/replace|change-me|example/i.test(value)) {
-    throw new Error(`${name} must not use an example placeholder`);
-  }
-  return value;
-}
-
 export function resolveAuthConfig(
   environment: NodeJS.ProcessEnv = process.env
 ): AuthConfig {
-  const accessSecret = readSecret(environment, "AUTH_ACCESS_SECRET");
-  const rateLimitPepper = readSecret(environment, "AUTH_RATE_LIMIT_PEPPER");
+  const accessSecret = readStrongSecret(environment, "AUTH_ACCESS_SECRET");
+  const rateLimitPepper = readStrongSecret(environment, "AUTH_RATE_LIMIT_PEPPER");
 
   if (accessSecret === rateLimitPepper) {
     throw new Error("AUTH_ACCESS_SECRET and AUTH_RATE_LIMIT_PEPPER must be distinct");

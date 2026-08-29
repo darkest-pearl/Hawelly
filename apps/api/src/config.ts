@@ -118,6 +118,14 @@ function parsePort(value: string | undefined): number {
   return port;
 }
 
+function parseEnvironment(value: string | undefined) {
+  const environment = value?.trim() || "development";
+  if (!["development", "test", "production"].includes(environment)) {
+    throw new Error("NODE_ENV must be development, test, or production");
+  }
+  return environment;
+}
+
 function parseCorsOrigins(value: string | undefined): readonly string[] {
   const candidates = value
     ? value.split(",").map((origin) => origin.trim()).filter(Boolean)
@@ -141,7 +149,7 @@ export function resolveRuntimeConfig(
   return {
     host: environment.HOST?.trim() || DEFAULT_HOST,
     port: parsePort(environment.PORT),
-    environment: environment.NODE_ENV?.trim() || "development",
+    environment: parseEnvironment(environment.NODE_ENV),
     corsOrigins: parseCorsOrigins(environment.CORS_ORIGINS),
     trustedBffAddresses: parseTrustedBffAddresses(
       environment.TRUSTED_BFF_ADDRESSES

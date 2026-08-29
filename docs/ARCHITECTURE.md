@@ -66,11 +66,21 @@ The API owns:
 
 Postgres stores operational truth. Clients never receive database credentials.
 
-Supabase/Postgres RLS and database-role strategy must be reviewed before production. If the backend uses an owner/bypass role, RLS is defense-in-depth against direct Supabase API exposure rather than the primary API authorization mechanism. `FORCE ROW LEVEL SECURITY` must not be enabled blindly.
+The API uses a dedicated server-side PostgreSQL connection and clients have no
+database SDK or credentials. Migrations revoke existing and default privileges
+from `PUBLIC` and, when provisioned by a managed platform, `anon` and
+`authenticated`. The backend role remains the sole application data plane.
+RLS can be added as deployment-specific defense in depth after verifying the
+backend role; `FORCE ROW LEVEL SECURITY` must not be enabled blindly against an
+owner/bypass role.
 
 ### Evidence storage boundary
 
-Evidence bucket is private. Backend issues short-lived signed upload/read URLs or proxies operations. Service credentials never enter frontend bundles.
+Evidence storage is private. The current adapter uses a production-configured
+absolute filesystem root, private directories/files, path confinement, and
+short-lived signed upload/read capabilities. A future object-store adapter must
+preserve the same private IAM boundary. Service credentials and signing secrets
+never enter frontend bundles.
 
 ## 3. Core domain entities
 
@@ -452,12 +462,17 @@ Never use sender-controlled raw object paths without validation.
 Initial rule:
 
 - clients do not query private tables directly;
-- API uses DB connection;
-- Supabase service key stays server-side;
-- enable RLS/privilege restrictions defensively after verifying the backend role;
+- API uses a dedicated server-side DB connection;
+- no Supabase SDK or service-role credential is present in either client;
+- migrations revoke schema/object/default privileges from `PUBLIC` and optional
+  `anon`/`authenticated` roles;
+- enable RLS defensively only after verifying the backend role;
 - no anon/authenticated Supabase role receives financial-table policies unless deliberately designed.
 
-Security implementation should inventory all public tables and remove `Unrestricted` exposure before production, without blindly using `FORCE ROW LEVEL SECURITY` against the backend owner role.
+Catalog-level integration tests verify the migration-owned privilege baseline
+from a fresh database. Deployment validation must additionally inspect the
+actual production role memberships and grants because those remain external
+state.
 
 ## 13. Notifications
 

@@ -25,6 +25,12 @@ export interface TransferCorridor {
 export interface TransferWorkflowConfig {
   quoteSlaMinutes: number;
   corridors: readonly TransferCorridor[];
+  maximumRecipientsPerSender: number;
+  recipientCreateWindowSeconds: number;
+  recipientCreateMaximum: number;
+  maximumActiveTransfersPerSender: number;
+  transferCreateWindowSeconds: number;
+  transferCreateMaximum: number;
 }
 
 const DEFAULT_CORRIDORS: readonly TransferCorridor[] = [
@@ -50,6 +56,16 @@ function parseQuoteSlaMinutes(value: string | undefined) {
     throw new Error("QUOTE_SLA_MINUTES must be an integer between 1 and 1440");
   }
   return minutes;
+}
+
+function boundedInteger(name: string, value: string | undefined, fallback: number, minimum: number, maximum: number) {
+  if (!value?.trim()) return fallback;
+  if (!/^\d+$/.test(value.trim())) throw new Error(`${name} must be an integer between ${minimum} and ${maximum}`);
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < minimum || parsed > maximum) {
+    throw new Error(`${name} must be an integer between ${minimum} and ${maximum}`);
+  }
+  return parsed;
 }
 
 function parseCorridors(value: string | undefined): readonly TransferCorridor[] {
@@ -84,6 +100,12 @@ export function resolveTransferWorkflowConfig(
 ): TransferWorkflowConfig {
   return {
     quoteSlaMinutes: parseQuoteSlaMinutes(environment.QUOTE_SLA_MINUTES),
-    corridors: parseCorridors(environment.TRANSFER_CORRIDORS_JSON)
+    corridors: parseCorridors(environment.TRANSFER_CORRIDORS_JSON),
+    maximumRecipientsPerSender: boundedInteger("SENDER_RECIPIENT_LIMIT", environment.SENDER_RECIPIENT_LIMIT, 100, 1, 10_000),
+    recipientCreateWindowSeconds: boundedInteger("SENDER_RECIPIENT_CREATE_WINDOW_SECONDS", environment.SENDER_RECIPIENT_CREATE_WINDOW_SECONDS, 3_600, 60, 86_400),
+    recipientCreateMaximum: boundedInteger("SENDER_RECIPIENT_CREATE_MAX", environment.SENDER_RECIPIENT_CREATE_MAX, 20, 1, 1_000),
+    maximumActiveTransfersPerSender: boundedInteger("SENDER_ACTIVE_TRANSFER_LIMIT", environment.SENDER_ACTIVE_TRANSFER_LIMIT, 20, 1, 1_000),
+    transferCreateWindowSeconds: boundedInteger("SENDER_TRANSFER_CREATE_WINDOW_SECONDS", environment.SENDER_TRANSFER_CREATE_WINDOW_SECONDS, 3_600, 60, 86_400),
+    transferCreateMaximum: boundedInteger("SENDER_TRANSFER_CREATE_MAX", environment.SENDER_TRANSFER_CREATE_MAX, 10, 1, 1_000)
   };
 }

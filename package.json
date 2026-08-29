@@ -29,9 +29,10 @@
     "db:validate": "npm run db:validate --workspace @hawelly/api",
     "db:migrate:deploy": "npm run db:migrate:deploy --workspace @hawelly/api",
     "smoke:health": "npm run smoke:health --workspace @hawelly/api",
+    "security:client-boundary": "node scripts/securityCheck.mjs",
     "qa:web:capture": "node scripts/captureWeb.mjs",
     "qa:web:m2": "node scripts/captureMilestone2.mjs",
-    "check": "npm run db:validate && npm run db:generate && npm run lint && npm run typecheck && npm test && npm run build"
+    "check": "npm run db:validate && npm run db:generate && npm run lint && npm run typecheck && npm test && npm run build && npm run security:client-boundary"
   },
   "devDependencies": {
     "concurrently": "10.0.5",

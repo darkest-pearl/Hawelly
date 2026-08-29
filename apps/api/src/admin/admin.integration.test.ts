@@ -93,7 +93,16 @@ integrationDescribe("admin configuration and operations", () => {
     expect((await runtimeConfiguration.getActive())?.transferLimitsByCurrency.AED?.maximumAmountMinor).toBe("500000");
 
     const principal: AuthPrincipal = { userId: sender.id, sessionId: "00000000-0000-4000-8000-000000000001", role: Role.SENDER, status: UserStatus.ACTIVE, capabilities: [] };
-    const transfers = new TransferWorkflowService(database, { quoteSlaMinutes: 45, corridors: [{ originCountry: "AE", destinationCountry: "PH", sendCurrencies: ["AED"], payoutMethods: [PayoutMethod.BANK_TRANSFER] }] }, () => new Date(now), undefined, runtimeConfiguration);
+    const transfers = new TransferWorkflowService(database, {
+      quoteSlaMinutes: 45,
+      maximumRecipientsPerSender: 100,
+      recipientCreateWindowSeconds: 3_600,
+      recipientCreateMaximum: 100,
+      maximumActiveTransfersPerSender: 100,
+      transferCreateWindowSeconds: 3_600,
+      transferCreateMaximum: 100,
+      corridors: [{ originCountry: "AE", destinationCountry: "PH", sendCurrencies: ["AED"], payoutMethods: [PayoutMethod.BANK_TRANSFER] }]
+    }, () => new Date(now), undefined, runtimeConfiguration);
     const context = { requestId: "admin-runtime-test", source: ActivitySource.API, ipAddress: "127.0.0.1", userAgent: "test" };
     await expect(transfers.createRecipient(principal, { fullName: "Blocked", country: "PH", payoutMethod: PayoutMethod.BANK_TRANSFER, payoutDetails: { accountName: "Blocked", bankName: "Bank", accountNumber: "123" } }, context)).rejects.toMatchObject({ code: "UNSUPPORTED_RECIPIENT_DESTINATION" });
     const recipient = await transfers.createRecipient(principal, { fullName: "Allowed", country: "GB", payoutMethod: PayoutMethod.BANK_TRANSFER, payoutDetails: { accountName: "Allowed", bankName: "Bank", accountNumber: "123" } }, context);

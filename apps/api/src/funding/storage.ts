@@ -1,6 +1,6 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdir, open, stat, unlink } from "node:fs/promises";
+import { chmod, mkdir, open, stat, unlink } from "node:fs/promises";
 import { dirname, resolve, sep } from "node:path";
 import { PublicApiError } from "../http/errors.js";
 
@@ -44,7 +44,8 @@ export class LocalEvidenceStorage {
   }
 
   async initialize() {
-    await mkdir(this.root, { recursive: true });
+    await mkdir(this.root, { recursive: true, mode: 0o700 });
+    if (process.platform !== "win32") await chmod(this.root, 0o700);
   }
 
   async healthcheck() {
@@ -64,7 +65,7 @@ export class LocalEvidenceStorage {
       throw new PublicApiError(413, "EVIDENCE_TOO_LARGE", "Evidence file size is invalid");
     }
     const target = this.pathFor(objectKey);
-    await mkdir(dirname(target), { recursive: true });
+    await mkdir(dirname(target), { recursive: true, mode: 0o700 });
     const handle = await open(target, "wx", 0o600).catch((error: NodeJS.ErrnoException) => {
       if (error.code === "EEXIST") throw new PublicApiError(409, "EVIDENCE_ALREADY_UPLOADED", "Evidence has already been uploaded");
       throw error;

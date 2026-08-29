@@ -10,14 +10,27 @@ import type { HawellyPrismaClient } from "../db/prisma.js";
 type AuditDatabase = HawellyPrismaClient | Prisma.TransactionClient;
 
 const REDACTED = "[REDACTED]";
-const SENSITIVE_KEY = /password|token|authorization|cookie|secret|otp|private.?key/i;
+const SENSITIVE_KEY = /password|passcode|token|authorization|cookie|secret|otp|private.?key|service.?role|credential|payout.?details|account.?reference|external.?reference|storage.?object.?key|original.?filename|phone|email|address|recipient.?snapshot/i;
+const SENSITIVE_TEXT = [
+  /\bBearer\s+[^\s]+/gi,
+  /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g,
+  /\b(password|passcode|token|secret|signature|otp)=([^&\s]+)/gi,
+  /-----BEGIN [^-\r\n]*PRIVATE KEY-----[\s\S]*?-----END [^-\r\n]*PRIVATE KEY-----/gi
+];
+
+export function sanitizeAuditText(value: string, maximumLength = 500) {
+  return SENSITIVE_TEXT.reduce(
+    (sanitized, pattern) => sanitized.replace(pattern, REDACTED),
+    value
+  ).slice(0, maximumLength);
+}
 
 export function sanitizeAuditValue(value: unknown, depth = 0): unknown {
   if (depth > 5) return "[TRUNCATED]";
   if (value === null || typeof value === "boolean" || typeof value === "number") {
     return value;
   }
-  if (typeof value === "string") return value.slice(0, 500);
+  if (typeof value === "string") return sanitizeAuditText(value);
   if (Array.isArray(value)) {
     return value.slice(0, 50).map((item) => sanitizeAuditValue(item, depth + 1));
   }
@@ -78,7 +91,7 @@ export function writeActivity(database: AuditDatabase, input: ActivityInput) {
             nextState: sanitizeAuditValue(input.nextState) as Prisma.InputJsonObject
           }
         : {}),
-      reason: input.reason?.slice(0, 1_000) ?? null,
+      reason: input.reason ? sanitizeAuditText(input.reason, 1_000) : null,
       errorCode: input.errorCode?.slice(0, 120) ?? null,
       metadata: sanitizeAuditValue(input.metadata || {}) as Prisma.InputJsonObject,
       ipHash: input.ipHash ?? null
