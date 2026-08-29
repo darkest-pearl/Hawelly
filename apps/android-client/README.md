@@ -47,6 +47,8 @@ apply the organization's protected signing key outside source control.
   an Android Keystore AES-GCM key before it enters private preferences.
 - Concurrent token refreshes are serialized in the client, while the API is
   still authoritative for rotation and replay-family revocation.
+- All-device sign-out clears local session state only after the API confirms
+  that every server session was revoked; failures remain visible and retryable.
 - Android backup is disabled. The manifest requests only internet access.
 - Evidence is bounded to 8 MB and restricted to JPEG, PNG, or PDF before the
   server performs its own validation and issues a signed upload URL.

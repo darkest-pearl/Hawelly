@@ -56,8 +56,13 @@ class HawellyRepository(
     }
 
     suspend fun logoutAll() {
-        runCatching { authenticated("POST", "/auth/logout-all", JSONObject()) }
-        clearSession()
+        clearAfterConfirmedRevocation(
+            revoke = {
+                authenticated("POST", "/auth/logout-all", JSONObject())
+                Unit
+            },
+            clear = ::clearSession
+        )
     }
 
     suspend fun listRecipients(): List<Recipient> =
@@ -234,4 +239,12 @@ class HawellyRepository(
     }
 
     private fun encode(value: String) = URLEncoder.encode(value, Charsets.UTF_8.name())
+}
+
+internal suspend fun clearAfterConfirmedRevocation(
+    revoke: suspend () -> Unit,
+    clear: () -> Unit
+) {
+    revoke()
+    clear()
 }

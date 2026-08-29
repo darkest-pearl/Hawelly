@@ -113,11 +113,20 @@ Public registration creates sender accounts only. Staff and admin accounts must
 be provisioned through an explicitly authorized operational path; Hawelly does
 not expose public privileged-role registration.
 
-The Android directory is a sender-client placeholder until Milestone 9. No Android SDK is required for the current bootstrap.
+The native sender-only Android client lives in `apps/android-client`. With JDK 21
+and Android SDK Platform 35 installed, its complete local gate is:
+
+```powershell
+cd apps/android-client
+.\gradlew.bat :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleRelease --no-daemon
+```
+
+See `apps/android-client/README.md` for API-origin, release-signing, evidence,
+session-storage, and update-distribution requirements.
 
 ## Status
 
-Milestones 0 through 8 are complete. The working product now includes
+Milestones 0 through 9 are complete. The working product now includes
 sender-scoped recipient management, transfer requests, sender timelines, and
 the staff new-request review queue, plus versioned staff quotes and sender
 acceptance/rejection. Staff can now publish accepted-quote-derived funding
@@ -131,5 +140,10 @@ audited operations resolution, immutable refund tracking, and admin-confirmed
 completion/refunds now close the managed transfer lifecycle. Administrators can
 now manage staff access and capabilities, activate immutable runtime-policy
 versions, maintain funding templates and associates, review audit activity, and
-monitor quote, funding, payout, dispute, and refund risk queues. Milestone 9
-adds the Android sender client.
+monitor quote, funding, payout, dispute, and refund risk queues. A native,
+sender-only Android client now mirrors the real sender lifecycle from account
+access and recipient management through transfer request, quote decision,
+funding proof, payout tracking, recipient confirmation, and dispute support.
+It also consumes integrity-aware public update metadata without adding an
+agent mode or any crypto, wallet, float, commission, settlement-batch, or
+reconciliation architecture.
