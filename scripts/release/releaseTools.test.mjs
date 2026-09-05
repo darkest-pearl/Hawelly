@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,6 +11,15 @@ import { loadEnvFiles, parseEnvText, secretSummary } from "./lib.mjs";
 import { parseWithEnvArguments } from "./withEnv.mjs";
 import { postgresEnvironment } from "./backupDatabase.mjs";
 import { summarizePm2Environment } from "./pm2EnvInspect.mjs";
+
+const require = createRequire(import.meta.url);
+
+test("PM2 pins the web server to loopback", () => {
+  const configuration = require("../../ecosystem.config.cjs");
+  const webApplication = configuration.apps.find((application) => application.name === "hawelly-web");
+
+  assert.match(webApplication?.args ?? "", /--hostname\s+127\.0\.0\.1(?:\s|$)/);
+});
 
 test("dotenv parsing preserves quoted spaces without interpolation", () => {
   assert.deepEqual(parseEnvText('ALPHA="hello world"\nBETA=plain # comment\nGAMMA=\'${ALPHA}\'\n'), {
