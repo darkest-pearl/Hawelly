@@ -18,6 +18,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --no-file-parallelism",
     "test:db": "vitest run --no-file-parallelism src/auth/auth.integration.test.ts src/db/schema.integration.test.ts",
+    "smoke:beta": "vitest run --no-file-parallelism src/auth/auth.integration.test.ts src/transfers/workflow.integration.test.ts src/admin/admin.integration.test.ts src/db/schema.integration.test.ts",
     "smoke:health": "tsx scripts/smokeHealth.ts"
   },
   "dependencies": {

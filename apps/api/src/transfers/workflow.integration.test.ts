@@ -25,6 +25,7 @@ import { FundingWorkflowService } from "../funding/service.js";
 import { LocalEvidenceStorage } from "../funding/storage.js";
 import { PayoutWorkflowService } from "../payout/service.js";
 import { ResolutionWorkflowService } from "../resolution/service.js";
+import { AdminWorkflowService } from "../admin/service.js";
 
 const databaseUrl = resolveTestDatabaseUrl(process.env.TEST_DATABASE_URL);
 const integrationDescribe = databaseUrl ? describe : describe.skip;
@@ -127,13 +128,15 @@ integrationDescribe("recipient and transfer workflow", () => {
     () => new Date(now)
   );
   const resolutionWorkflow = new ResolutionWorkflowService(database, () => new Date(now));
+  const adminWorkflow = new AdminWorkflowService(database, fundingConfig, () => new Date(now));
   const app = createApp(runtimeConfig, {
     authService,
     transferWorkflowService: workflow,
     quoteWorkflowService: quoteWorkflow,
     fundingWorkflowService: fundingWorkflow,
     payoutWorkflowService: payoutWorkflow,
-    resolutionWorkflowService: resolutionWorkflow
+    resolutionWorkflowService: resolutionWorkflow,
+    adminWorkflowService: adminWorkflow
   });
 
   async function createUser(
@@ -267,6 +270,169 @@ integrationDescribe("recipient and transfer workflow", () => {
   afterAll(async () => {
     await database.$disconnect();
     await rm(evidenceRoot, { recursive: true, force: true });
+  });
+
+  it("completes the full beta workflow from sender registration through recipient confirmation", async () => {
+    const admin = await createUser("beta-admin@example.com", Role.ADMIN);
+    const adminToken = await accessToken(admin.email);
+    const capabilities = [
+      Capability.TRANSFER_REVIEW,
+      Capability.QUOTE_MANAGE,
+      Capability.FUNDING_REVIEW,
+      Capability.PAYOUT_MANAGE,
+      Capability.TRANSFER_HOLD,
+      Capability.ASSOCIATE_VIEW,
+      Capability.ASSOCIATE_MANAGE
+    ];
+    const staffResponse = await request(app)
+      .post("/admin/staff")
+      .set(authenticated(adminToken))
+      .send({
+        fullName: "Beta Operations",
+        email: "beta-operations@example.com",
+        temporaryPassword: "CorrectHorse123",
+        capabilities,
+        reason: "Provision full workflow beta operator",
+        confirmed: true
+      });
+    expect(staffResponse.status, JSON.stringify(staffResponse.body)).toBe(201);
+    const staffToken = await accessToken("beta-operations@example.com");
+
+    const registration = await request(app).post("/auth/register").send({
+      fullName: "Beta Sender",
+      email: "beta-sender@example.com",
+      password: "BetaSenderPassword123"
+    });
+    expect(registration.status, JSON.stringify(registration.body)).toBe(201);
+    const senderToken = registration.body.accessToken as string;
+    const otherRegistration = await request(app).post("/auth/register").send({
+      fullName: "Other Beta Sender",
+      email: "beta-other@example.com",
+      password: "OtherBetaPassword123"
+    });
+    expect(otherRegistration.status).toBe(201);
+    const otherToken = otherRegistration.body.accessToken as string;
+
+    expect((await request(app).get("/admin/staff").set(authenticated(senderToken))).status).toBe(403);
+    const recipient = await createRecipient(senderToken);
+    expect(recipient.status).toBe(201);
+    const transfer = await createTransfer(senderToken, recipient.body.recipient.id);
+    expect(transfer.status).toBe(201);
+    const transferId = transfer.body.transfer.id as string;
+    expect((await request(app).get(`/transfers/${transferId}`).set(authenticated(otherToken))).status).toBe(404);
+
+    const queue = await request(app).get("/operations/transfers").set(authenticated(staffToken));
+    expect(queue.status).toBe(200);
+    expect(queue.body.transfers.some((item: { id: string }) => item.id === transferId)).toBe(true);
+    expect((await request(app).post(`/operations/transfers/${transferId}/review`).set(authenticated(staffToken)).send({ action: "START_QUOTING" })).status).toBe(200);
+    const quote = await request(app)
+      .post(`/operations/transfers/${transferId}/quotes`)
+      .set(authenticated(staffToken))
+      .send({
+        sendAmountMinor: "125000",
+        sendCurrency: "AED",
+        feeAmountMinor: "2500",
+        effectiveRate: "15.125",
+        receiveAmountMinor: "1852813",
+        receiveCurrency: "PHP",
+        expectedDeliveryAt: new Date(now.getTime() + 86_400_000).toISOString(),
+        validForMinutes: 30
+      });
+    expect(quote.status).toBe(201);
+    const quoteId = quote.body.quote.id as string;
+    expect((await request(app).post(`/operations/transfers/${transferId}/quotes/${quoteId}/send`).set(authenticated(staffToken)).send({})).status).toBe(200);
+    expect((await request(app).post(`/transfers/${transferId}/quotes/${quoteId}/decision`).set(authenticated(senderToken)).send({ decision: "ACCEPT" })).body.transferStatus).toBe("QUOTE_ACCEPTED");
+
+    const template = await request(app)
+      .post("/admin/funding-templates")
+      .set(authenticated(adminToken))
+      .send({
+        name: "Beta AED account",
+        method: FundingMethod.BANK_TRANSFER,
+        currency: "AED",
+        payeeName: "Hawelly Operations",
+        provider: "Beta Bank",
+        accountReference: "AE00 BETA 0000 0000",
+        instructions: "Use the exact transfer reference.",
+        reason: "Publish approved beta funding destination",
+        confirmed: true
+      });
+    expect(template.status).toBe(201);
+    const instruction = await request(app)
+      .post(`/operations/transfers/${transferId}/funding-instruction`)
+      .set(authenticated(staffToken))
+      .send({ templateId: template.body.template.id, senderReference: "HW-BETA-FUND-001" });
+    expect(instruction.status).toBe(201);
+    expect((await request(app).get(`/transfers/${transferId}/funding`).set(authenticated(senderToken))).body.instruction.senderReference).toBe("HW-BETA-FUND-001");
+
+    const fundingReceipt = Buffer.from("%PDF-1.4\nbeta funding receipt\n%%EOF", "utf8");
+    const proof = await request(app)
+      .post(`/transfers/${transferId}/funding-proofs`)
+      .set(authenticated(senderToken))
+      .send({
+        reference: "BETA-BANK-REF-001",
+        amountMinor: "125000",
+        currency: "AED",
+        transferredAt: now.toISOString(),
+        attachment: { filename: "funding.pdf", contentType: "application/pdf", sizeBytes: fundingReceipt.byteLength }
+      });
+    expect(proof.status).toBe(201);
+    const proofUpload = new URL(proof.body.upload.url);
+    expect((await request(app).put(`${proofUpload.pathname}${proofUpload.search}`).set("Content-Type", "application/pdf").send(fundingReceipt)).status).toBe(200);
+    const proofId = proof.body.proof.id as string;
+    expect((await request(app).post(`/transfers/${transferId}/funding-proofs/${proofId}/read-url`).set(authenticated(otherToken)).send({})).status).toBe(404);
+    expect((await request(app).post(`/operations/transfers/${transferId}/funding-proofs/${proofId}/review`).set(authenticated(staffToken)).send({ decision: "VERIFY", reason: "Beta receipt matched" })).body.proof.status).toBe("VERIFIED");
+    expect((await request(app).post(`/operations/transfers/${transferId}/funds-confirmation`).set(authenticated(staffToken)).send({ proofId, reason: "Beta funds visible" })).body.transferStatus).toBe("FUNDS_CONFIRMED");
+
+    const associate = await request(app)
+      .post("/operations/associates")
+      .set(authenticated(staffToken))
+      .send({
+        businessName: "Beta Manila Desk",
+        countries: ["PH"],
+        cities: ["Manila"],
+        payoutMethods: ["BANK_TRANSFER"],
+        currencies: ["PHP"],
+        contactChannels: { operationsEmail: "beta-associate@example.test" },
+        trustNotes: "Approved only for the isolated beta smoke"
+      });
+    expect(associate.status).toBe(201);
+    const payout = await request(app)
+      .post(`/operations/transfers/${transferId}/payout-case`)
+      .set(authenticated(staffToken))
+      .send({ associateContactId: associate.body.associate.id, expectedBy: new Date(now.getTime() + 86_400_000).toISOString() });
+    expect(payout.status).toBe(201);
+
+    const payoutReceipt = Buffer.from("%PDF-1.4\nbeta payout receipt\n%%EOF", "utf8");
+    const payoutEvidence = await request(app)
+      .post(`/operations/transfers/${transferId}/payout-evidence`)
+      .set(authenticated(staffToken))
+      .send({ externalReference: "BETA-PAYOUT-001", attachment: { filename: "payout.pdf", contentType: "application/pdf", sizeBytes: payoutReceipt.byteLength } });
+    expect(payoutEvidence.status).toBe(201);
+    const payoutUpload = new URL(payoutEvidence.body.upload.url);
+    expect((await request(app).put(`${payoutUpload.pathname}${payoutUpload.search}`).set("Content-Type", "application/pdf").send(payoutReceipt)).status).toBe(200);
+    const held = await request(app).post(`/operations/transfers/${transferId}/payout-hold`).set(authenticated(staffToken)).send({ reason: "Beta callback check", senderFacingNote: "We are completing an operational check." });
+    expect(held.body.transferStatus).toBe("ON_HOLD");
+    expect((await request(app).post(`/operations/transfers/${transferId}/payout-release`).set(authenticated(staffToken)).send({ reason: "Beta callback cleared", senderFacingNote: "The payout is moving again." })).body.transferStatus).toBe("PAYOUT_IN_PROGRESS");
+    expect((await request(app).post(`/operations/transfers/${transferId}/payout-report`).set(authenticated(staffToken)).send({ completedAmountMinor: "1852813", currency: "PHP", completedAt: now.toISOString(), senderFacingNote: "The payout was sent." })).body.transferStatus).toBe("PAYOUT_REPORTED");
+    expect((await request(app).post(`/operations/transfers/${transferId}/confirmation-request`).set(authenticated(staffToken)).send({ note: "Please confirm recipient receipt." })).body.transferStatus).toBe("CONFIRMATION_PENDING");
+    const completed = await request(app).post(`/transfers/${transferId}/recipient-confirmation`).set(authenticated(senderToken)).send({ note: "Recipient confirmed receipt." });
+    expect(completed.body.transferStatus).toBe("COMPLETED");
+
+    const senderDetail = await request(app).get(`/transfers/${transferId}`).set(authenticated(senderToken));
+    expect(senderDetail.body.transfer.status).toBe("COMPLETED");
+    expect(JSON.stringify(senderDetail.body)).not.toMatch(/BETA-PAYOUT-001|beta-associate@example|accountReference|internalNote/i);
+    const activity = await request(app).get("/admin/activity?limit=100").set(authenticated(adminToken));
+    const actions = activity.body.events.map((event: { actionType: string }) => event.actionType);
+    expect(actions).toEqual(expect.arrayContaining([
+      "TRANSFER_REQUEST_CREATED",
+      "QUOTE_ACCEPTED",
+      "FUNDING_INSTRUCTIONS_PUBLISHED",
+      "FUNDS_RECEIVED_CONFIRMED",
+      "PAYOUT_REPORTED",
+      "RECIPIENT_RECEIPT_CONFIRMED"
+    ]));
+    expect((await request(app).get("/health/storage")).status).toBe(200);
   });
 
   it("scopes recipient CRUD to the authenticated sender and rejects mass assignment", async () => {
