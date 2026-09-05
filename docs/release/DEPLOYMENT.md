@@ -13,6 +13,11 @@ state. Run commands from the repository root at an immutable reviewed revision.
    `apps/web/.env.production.example` to the ignored `apps/web/.env`. Supply
    database credentials and three independently generated secrets through the
    approved secret-management channel. Never commit either file.
+   When API and web share a host, configure the server-only
+   `HAWELLY_API_URL` as an exact loopback origin. Public browser and Android
+   traffic still uses the reverse proxy's HTTPS origin. The proxy must replace
+   `X-Real-IP` with the socket client address and clear the BFF-only
+   `X-Hawelly-BFF-Rate-Limit-Id` header on public API routes.
 4. Create the absolute evidence directory outside the repository, restrict it
    to the API service account, and include it in the host backup policy.
 5. Run `npm run release:audit`. It validates production origins, private storage,
@@ -51,6 +56,8 @@ maintenance-window recovery operation described separately.
 
 The edge proxy must terminate TLS, preserve the configured exact origins, set
 the single trusted client-IP header, and replace rather than append untrusted
-copies of that header. The API should be reachable only by the web BFF and
+copies of that header. Only exact proxy peer addresses belong in
+`TRUSTED_BFF_ADDRESSES`; forwarded client IPs from any other peer are ignored.
+The API should be reachable only through the proxy, the colocated web BFF, and
 approved operators; the evidence directory must never be served as static
 content.

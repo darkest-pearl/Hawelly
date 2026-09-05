@@ -28,6 +28,14 @@ function validateAndroidUpdate(environment) {
   }
 }
 
+function validateServerApiOrigin(value) {
+  const origin = exactOrigin(value, "HAWELLY_API_URL");
+  const url = new URL(origin);
+  if (url.protocol === "https:") return;
+  if (url.protocol === "http:" && ["127.0.0.1", "[::1]"].includes(url.hostname)) return;
+  throw new Error("HAWELLY_API_URL must use HTTPS or exact HTTP loopback");
+}
+
 export function auditReleaseEnvironment(apiEnvironment, webEnvironment) {
   const errors = [];
   const check = (operation) => { try { operation(); } catch (error) { errors.push(error.message); } };
@@ -54,7 +62,7 @@ export function auditReleaseEnvironment(apiEnvironment, webEnvironment) {
   });
   check(() => validateAndroidUpdate(apiEnvironment));
   check(() => { if (webEnvironment.NODE_ENV !== "production") throw new Error("Web NODE_ENV must be production"); });
-  check(() => exactOrigin(requireValue(webEnvironment, "HAWELLY_API_URL"), "HAWELLY_API_URL", { https: true }));
+  check(() => validateServerApiOrigin(requireValue(webEnvironment, "HAWELLY_API_URL")));
   check(() => exactOrigin(requireValue(webEnvironment, "HAWELLY_WEB_ORIGIN"), "HAWELLY_WEB_ORIGIN", { https: true }));
   check(() => {
     const header = requireValue(webEnvironment, "HAWELLY_CLIENT_IP_HEADER").toLowerCase();
