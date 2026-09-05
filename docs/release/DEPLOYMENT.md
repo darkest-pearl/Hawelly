@@ -27,7 +27,9 @@ state. Run commands from the repository root at an immutable reviewed revision.
 7. Before a migration, run the backup procedure in `BACKUP_RESTORE.md`. Then run
    `npm run db:migrate:deploy`.
 8. Start the services with `npm run release:pm2:api:start` and
-   `npm run release:pm2:web:start`.
+   `npm run release:pm2:web:start`. The checked-in PM2 configuration binds the
+   web process to `127.0.0.1`; verify both service ports are loopback-only before
+   enabling the edge proxy.
 9. Run `npm run release:health -- --url https://api.example.com`. All three
    liveness, database readiness, and private-storage probes must pass.
 10. Inspect the loaded runtime configuration with
