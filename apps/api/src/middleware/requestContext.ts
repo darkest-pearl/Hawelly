@@ -37,12 +37,13 @@ function resolveRateLimitAddress(
   trustedBffAddresses: readonly string[]
 ) {
   const peerAddress = request.ip || "unknown";
+  const trustedPeer = trustedBffAddresses.includes(peerAddress);
   const identity = request.header("x-hawelly-bff-rate-limit-id") || "";
   const clientId = identity.startsWith("client:") ? identity.slice(7) : "";
   const clientIp = identity.startsWith("ip:") ? identity.slice(3) : "";
   if (
     source === ActivitySource.WEB &&
-    trustedBffAddresses.includes(peerAddress)
+    trustedPeer
   ) {
     if (
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
@@ -53,7 +54,20 @@ function resolveRateLimitAddress(
     }
     if (isIP(clientIp)) return `web-ip:${clientIp}`;
   }
+  const proxyIp = request.header("x-real-ip")?.trim() || "";
+  if (trustedPeer && isIP(proxyIp)) return `proxy-ip:${proxyIp}`;
   return peerAddress;
+}
+
+function resolveClientAddress(
+  request: Request,
+  trustedBffAddresses: readonly string[]
+) {
+  const peerAddress = request.ip || "unknown";
+  const proxyIp = request.header("x-real-ip")?.trim() || "";
+  return trustedBffAddresses.includes(peerAddress) && isIP(proxyIp)
+    ? proxyIp
+    : peerAddress;
 }
 
 export function createRequestContextMiddleware(
@@ -70,7 +84,7 @@ export function createRequestContextMiddleware(
         request.header("x-request-id") || request.header("x-correlation-id")
       ),
       source,
-      ipAddress: request.ip || "unknown",
+      ipAddress: resolveClientAddress(request, trustedBffAddresses),
       rateLimitAddress: resolveRateLimitAddress(
         request,
         source,

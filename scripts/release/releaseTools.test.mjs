@@ -84,7 +84,21 @@ test("release audit accepts a production configuration and rejects secret reuse"
     HAWELLY_CLIENT_IP_HEADER: "x-real-ip"
   };
   assert.deepEqual(auditReleaseEnvironment(api, web), []);
+  assert.deepEqual(
+    auditReleaseEnvironment(api, {
+      ...web,
+      HAWELLY_API_URL: "http://127.0.0.1:4100"
+    }),
+    []
+  );
   assert.match(auditReleaseEnvironment({ ...api, EVIDENCE_SIGNING_SECRET: api.AUTH_ACCESS_SECRET }, web).join(" "), /distinct/);
+  assert.match(
+    auditReleaseEnvironment(api, {
+      ...web,
+      HAWELLY_API_URL: "http://10.0.0.1:4100"
+    }).join(" "),
+    /HTTPS or exact HTTP loopback/
+  );
 });
 
 test("health check validates all public operational probes", async () => {
