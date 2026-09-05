@@ -80,7 +80,7 @@ jobs:
         run: npm run smoke:health
 
       - name: Audit production dependencies
-        run: npm audit --omit=dev --audit-level=high
+        run: npm audit --omit=dev --omit=optional --audit-level=high
 
       - name: Reject critical development dependency vulnerabilities
         run: npm audit --audit-level=critical

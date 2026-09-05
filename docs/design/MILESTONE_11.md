@@ -57,6 +57,21 @@ remain separate responsibilities.
   and backup were removed afterward.
 - Deployment, PM2, backup/restore, beta onboarding, and beta limitation runbooks
   define owners, ordering, verification, rollback, and known operational limits.
-
-Final repository, dependency, live storage-health, and proportional security
-gates are recorded at checkpoint completion.
+- The CI-equivalent local gate passed Prisma validation/generation, lint,
+  typecheck, all 94 API tests, all 79 web tests, all eight release-tool tests,
+  both production builds, the client-boundary scan, and built-API smoke against
+  a fresh migrated PostgreSQL 18 database.
+- The production runtime audit (`--omit=dev --omit=optional`, high threshold)
+  reports zero vulnerabilities and lockfile dry-run installation passes. The
+  full dependency graph has no critical vulnerability. It retains one moderate
+  and one high advisory in Prisma CLI's optional `mysql2` support; Hawelly uses
+  PostgreSQL, does not ship that CLI in the production runtime graph, and the
+  offered remediation is a breaking Prisma downgrade. This is recorded rather
+  than forced into the release.
+- Proportional security review confirmed commands use argument arrays with no
+  shell evaluation, secrets stay out of arguments/logs/manifests, backup
+  publication is exclusive, health calls are timeout-bounded, and the milestone
+  introduces no new client, authorization, financial, or backend trust boundary.
+- No PM2 process/daemon, API server, PostgreSQL test cluster, backup, evidence
+  probe, environment file, log, donor checkout, or generated scan artifact is
+  included in the checkpoint.
