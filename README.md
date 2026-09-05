@@ -80,6 +80,8 @@ npm ci
 npm run db:migrate:deploy
 npm run check
 npm run smoke:health
+# With TEST_DATABASE_URL pointing to a disposable loopback test database:
+npm run smoke:beta
 ```
 
 Set `DATABASE_URL`, `AUTH_ACCESS_SECRET`, and `AUTH_RATE_LIMIT_PEPPER` before
@@ -133,7 +135,8 @@ session-storage, and update-distribution requirements.
 
 ## Status
 
-Milestones 0 through 11 are complete. The working product now includes
+Milestones 0 through 12 are complete and the documented v1 beta criteria are
+verified. The working product now includes
 sender-scoped recipient management, transfer requests, sender timelines, and
 the staff new-request review queue, plus versioned staff quotes and sender
 acceptance/rejection. Staff can now publish accepted-quote-derived funding
@@ -161,3 +164,9 @@ Its release path now includes safe layered environment loading, repository-pinne
 PM2 start/restart commands with verified environment refresh, redacted runtime
 inspection, bounded health/readiness/private-storage checks, verified PostgreSQL
 backup manifests, and production/beta runbooks.
+The named full-system beta smoke now traverses the uninterrupted sender-to-staff
+workflow through recipient confirmation and completion, while its companion
+suites cover quote, evidence, hold, cancellation, dispute/refund,
+authorization/capability, audit, and database-integrity failure paths. Current
+tester constraints are recorded in
+[`docs/release/BETA_LIMITATIONS.md`](docs/release/BETA_LIMITATIONS.md).
