@@ -107,6 +107,13 @@ Local endpoints:
 - Login: `POST http://127.0.0.1:4000/auth/login`
 - Current user: `GET http://127.0.0.1:4000/me`
 
+Production release operations are documented in
+[`docs/release/DEPLOYMENT.md`](docs/release/DEPLOYMENT.md). The repository pins
+PM2, validates ignored production env files without printing secrets, checks
+liveness/database/private storage, and creates verified PostgreSQL custom-format
+backups with SHA-256 manifests. See the adjacent PM2, backup/restore, and beta
+runbooks before operating a deployment or cohort.
+
 Copy each app's `.env.example` to a local ignored env file only when configuration changes are needed. Every `NEXT_PUBLIC_*` web variable is bundled into browser code and must never contain credentials or private service configuration.
 
 Public registration creates sender accounts only. Staff and admin accounts must
@@ -126,7 +133,7 @@ session-storage, and update-distribution requirements.
 
 ## Status
 
-Milestones 0 through 10 are complete. The working product now includes
+Milestones 0 through 11 are complete. The working product now includes
 sender-scoped recipient management, transfer requests, sender timelines, and
 the staff new-request review queue, plus versioned staff quotes and sender
 acceptance/rejection. Staff can now publish accepted-quote-derived funding
@@ -150,3 +157,7 @@ reconciliation architecture. The production boundary now also includes
 deny-by-default PostgreSQL privileges, strong and separated server secrets,
 private evidence filesystem modes, bounded sender resource creation, audit
 redaction, HTTP request hardening, and a build-time client-secret gate.
+Its release path now includes safe layered environment loading, repository-pinned
+PM2 start/restart commands with verified environment refresh, redacted runtime
+inspection, bounded health/readiness/private-storage checks, verified PostgreSQL
+backup manifests, and production/beta runbooks.

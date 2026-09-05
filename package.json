@@ -35,7 +35,7 @@
     "release:tools:test": "node --test scripts/release/releaseTools.test.mjs",
     "release:audit": "node scripts/release/releaseAudit.mjs",
     "release:health": "node scripts/release/healthCheck.mjs",
-    "release:db:backup": "node scripts/release/backupDatabase.mjs",
+    "release:db:backup": "node scripts/release/withEnv.mjs --env apps/api/.env -- node scripts/release/backupDatabase.mjs",
     "release:pm2:api:start": "node scripts/release/withEnv.mjs --env apps/api/.env -- node node_modules/pm2/bin/pm2 start ecosystem.config.cjs --only hawelly-api --update-env",
     "release:pm2:api:restart": "node scripts/release/withEnv.mjs --env apps/api/.env -- node node_modules/pm2/bin/pm2 restart hawelly-api --update-env",
     "release:pm2:web:start": "node scripts/release/withEnv.mjs --env apps/web/.env -- node node_modules/pm2/bin/pm2 start ecosystem.config.cjs --only hawelly-web --update-env",
