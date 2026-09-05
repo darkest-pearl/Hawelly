@@ -47,7 +47,9 @@ state. Run commands from the repository root at an immutable reviewed revision.
 3. Create and verify a pre-release database backup.
 4. Run `npm run db:migrate:deploy`.
 5. Restart the API and web processes with the `release:pm2:*:restart` scripts.
-   These always pass PM2's `--update-env` option.
+   These replace the named Hawelly process definitions before starting them from
+   the new immutable release, preventing PM2 from retaining resolved paths to an
+   older release. They never target non-Hawelly process names.
 6. Inspect the environment summaries, then run the external health check.
 7. Save the healthy PM2 process list.
 
