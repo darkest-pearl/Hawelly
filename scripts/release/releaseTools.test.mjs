@@ -11,6 +11,7 @@ import { loadEnvFiles, parseEnvText, secretSummary } from "./lib.mjs";
 import { parseWithEnvArguments } from "./withEnv.mjs";
 import { postgresEnvironment } from "./backupDatabase.mjs";
 import { summarizePm2Environment } from "./pm2EnvInspect.mjs";
+import { parseProcessName } from "./replacePm2Process.mjs";
 
 const require = createRequire(import.meta.url);
 
@@ -19,6 +20,13 @@ test("PM2 pins the web server to loopback", () => {
   const webApplication = configuration.apps.find((application) => application.name === "hawelly-web");
 
   assert.match(webApplication?.args ?? "", /--hostname\s+127\.0\.0\.1(?:\s|$)/);
+});
+
+test("PM2 replacement accepts only Hawelly process names", () => {
+  assert.equal(parseProcessName(["--process", "hawelly-api"]), "hawelly-api");
+  assert.equal(parseProcessName(["--process", "hawelly-web"]), "hawelly-web");
+  assert.throws(() => parseProcessName(["--process", "xbux-api"]), /Unsupported/);
+  assert.throws(() => parseProcessName([]), /Usage/);
 });
 
 test("dotenv parsing preserves quoted spaces without interpolation", () => {
