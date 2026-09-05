@@ -13,10 +13,16 @@ function readBearerToken(request: Request) {
 }
 
 export function requireAuth(authService: AuthService) {
-  return async (request: AuthRequest, _response: Response, next: NextFunction) => {
+  return async (request: AuthRequest, response: Response, next: NextFunction) => {
+    const token = readBearerToken(request);
+    if (!token) {
+      response.set("Cache-Control", "no-store");
+      response.status(401).json({
+        error: { code: "AUTH_REQUIRED", message: "Authentication required" }
+      });
+      return;
+    }
     try {
-      const token = readBearerToken(request);
-      if (!token) throw new Error("Missing bearer token");
       request.auth = await authService.authenticate(token);
       next();
     } catch (error) {
