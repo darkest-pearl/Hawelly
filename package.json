@@ -32,7 +32,16 @@
     "security:client-boundary": "node scripts/securityCheck.mjs",
     "qa:web:capture": "node scripts/captureWeb.mjs",
     "qa:web:m2": "node scripts/captureMilestone2.mjs",
-    "check": "npm run db:validate && npm run db:generate && npm run lint && npm run typecheck && npm test && npm run build && npm run security:client-boundary"
+    "release:tools:test": "node --test scripts/release/releaseTools.test.mjs",
+    "release:audit": "node scripts/release/releaseAudit.mjs",
+    "release:health": "node scripts/release/healthCheck.mjs",
+    "release:db:backup": "node scripts/release/withEnv.mjs --env apps/api/.env -- node scripts/release/backupDatabase.mjs",
+    "release:pm2:api:start": "node scripts/release/withEnv.mjs --env apps/api/.env -- node node_modules/pm2/bin/pm2 start ecosystem.config.cjs --only hawelly-api --update-env",
+    "release:pm2:api:restart": "node scripts/release/withEnv.mjs --env apps/api/.env -- node node_modules/pm2/bin/pm2 restart hawelly-api --update-env",
+    "release:pm2:web:start": "node scripts/release/withEnv.mjs --env apps/web/.env -- node node_modules/pm2/bin/pm2 start ecosystem.config.cjs --only hawelly-web --update-env",
+    "release:pm2:web:restart": "node scripts/release/withEnv.mjs --env apps/web/.env -- node node_modules/pm2/bin/pm2 restart hawelly-web --update-env",
+    "release:pm2:env": "node scripts/release/pm2EnvInspect.mjs",
+    "check": "npm run db:validate && npm run db:generate && npm run lint && npm run typecheck && npm test && npm run release:tools:test && npm run build && npm run security:client-boundary"
   },
   "devDependencies": {
     "concurrently": "10.0.5",
@@ -40,6 +49,7 @@
     "eslint": "10.9.1",
     "lodash": "4.18.1",
     "playwright-core": "1.62.1",
+    "pm2": "7.0.4",
     "typescript-eslint": "8.68.0"
   }
 }

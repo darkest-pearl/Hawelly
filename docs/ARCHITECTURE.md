@@ -530,6 +530,14 @@ Do not introduce these models/modules into Hawelly v1 without an approved spec c
 - migration status checked before release;
 - production release must have health + smoke checks;
 - secrets are external environment state, never committed.
+- production env files are loaded without shell evaluation and are validated
+  before build/migration/restart;
+- PM2 restarts caused by configuration changes use `--update-env`, followed by
+  redacted fingerprint inspection and liveness/readiness/storage verification;
+- PostgreSQL custom-format backups are non-overwriting, catalog-checked, hashed,
+  and periodically proven through a full restore drill;
+- private evidence bytes are backed up and restored separately from database
+  metadata and are never exposed as public static content.
 
 ## 18. Testing architecture
 
