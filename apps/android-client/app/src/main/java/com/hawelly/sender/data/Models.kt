@@ -27,6 +27,34 @@ data class Recipient(
     val address: String?
 )
 
+data class TransferCorridorOption(
+    val originCountry: String,
+    val destinationCountry: String,
+    val sendCurrencies: List<String>,
+    val payoutMethods: List<PayoutMethod>
+)
+
+data class SenderTransferOptions(
+    val quoteSlaMinutes: Int,
+    val corridors: List<TransferCorridorOption>
+)
+
+data class RecipientDestinationOption(
+    val country: String,
+    val payoutMethods: List<PayoutMethod>
+)
+
+fun SenderTransferOptions.recipientDestinations(): List<RecipientDestinationOption> {
+    val destinations = linkedMapOf<String, LinkedHashSet<PayoutMethod>>()
+    corridors.forEach { corridor ->
+        destinations.getOrPut(corridor.destinationCountry, ::linkedSetOf)
+            .addAll(corridor.payoutMethods)
+    }
+    return destinations.map { (country, methods) ->
+        RecipientDestinationOption(country, methods.toList())
+    }
+}
+
 data class TimelineEvent(
     val type: String,
     val status: String?,

@@ -247,6 +247,20 @@ export class TransferWorkflowService {
     );
   }
 
+  async getSenderOptions(principal: AuthPrincipal) {
+    requireSender(principal);
+    const policy = await this.effectivePolicy();
+    return {
+      quoteSlaMinutes: policy.workflow.quoteSlaMinutes,
+      corridors: policy.workflow.corridors.map((corridor) => ({
+        originCountry: corridor.originCountry,
+        destinationCountry: corridor.destinationCountry,
+        sendCurrencies: [...corridor.sendCurrencies],
+        payoutMethods: [...corridor.payoutMethods]
+      }))
+    };
+  }
+
   private corridorFor(config: TransferWorkflowConfig, input: TransferInput) {
     return config.corridors.find(
       (corridor) =>

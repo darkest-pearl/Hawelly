@@ -111,6 +111,7 @@ Local endpoints:
 - Sender registration: `POST http://127.0.0.1:4000/auth/register`
 - Login: `POST http://127.0.0.1:4000/auth/login`
 - Current user: `GET http://127.0.0.1:4000/me`
+- Authenticated sender options: `GET http://127.0.0.1:4000/transfers/options`
 
 Production release operations are documented in
 [`docs/release/DEPLOYMENT.md`](docs/release/DEPLOYMENT.md). The repository pins

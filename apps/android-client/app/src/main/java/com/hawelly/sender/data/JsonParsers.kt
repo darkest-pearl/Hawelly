@@ -12,6 +12,8 @@ internal fun JSONObject.stringMap(): Map<String, String> = keys().asSequence().a
 
 internal fun JSONArray.objects(): List<JSONObject> = (0 until length()).map(::getJSONObject)
 
+internal fun JSONArray.strings(): List<String> = (0 until length()).map(::getString)
+
 internal fun parseUser(value: JSONObject) = User(
     id = value.getString("id"),
     fullName = value.getString("fullName"),
@@ -35,6 +37,19 @@ internal fun parseRecipient(value: JSONObject) = Recipient(
     payoutMethod = PayoutMethod.valueOf(value.getString("payoutMethod")),
     payoutDetails = value.getJSONObject("payoutDetails").stringMap(),
     address = value.nullableString("address")
+)
+
+internal fun parseTransferOptions(value: JSONObject) = SenderTransferOptions(
+    quoteSlaMinutes = value.getInt("quoteSlaMinutes"),
+    corridors = value.getJSONArray("corridors").objects().map { corridor ->
+        TransferCorridorOption(
+            originCountry = corridor.getString("originCountry"),
+            destinationCountry = corridor.getString("destinationCountry"),
+            sendCurrencies = corridor.getJSONArray("sendCurrencies").strings(),
+            payoutMethods = corridor.getJSONArray("payoutMethods").strings()
+                .map { PayoutMethod.valueOf(it) }
+        )
+    }
 )
 
 internal fun parseTransfer(value: JSONObject): Transfer {

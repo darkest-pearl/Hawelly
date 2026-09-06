@@ -39,6 +39,20 @@ state. Run commands from the repository root at an immutable reviewed revision.
     host startup using PM2's operating-system-specific startup command and the
     dedicated service account.
 
+## First administrator
+
+After the database is migrated and the API is built, run `npm run
+admin:bootstrap` in an interactive terminal under the Hawelly service account.
+The command accepts no arguments and prompts for the administrator name, email,
+password, and confirmation. Password input is hidden and is never passed in a
+command argument or environment variable.
+
+The database transaction takes a dedicated advisory lock and refuses to create
+an account when any administrator already exists. A successful first bootstrap
+creates an active admin/staff profile and a system activity event. Subsequent
+staff and configuration changes must use the authenticated admin console with
+its confirmation and reason controls.
+
 ## Subsequent release
 
 1. Fetch and check out the reviewed revision; retain the prior immutable

@@ -6,6 +6,7 @@ const routeRules = [
   { pattern: /^recipients$/, methods: ["GET", "POST"] },
   { pattern: new RegExp(`^recipients/${UUID_PATTERN.source.slice(1, -1)}$`, "i"), methods: ["GET", "PATCH", "DELETE"] },
   { pattern: /^transfers$/, methods: ["GET", "POST"] },
+  { pattern: /^transfers\/options$/, methods: ["GET"] },
   { pattern: new RegExp(`^transfers/${UUID_PATTERN.source.slice(1, -1)}$`, "i"), methods: ["GET"] },
   { pattern: new RegExp(`^transfers/${UUID_PATTERN.source.slice(1, -1)}/cancel$`, "i"), methods: ["POST"] },
   { pattern: new RegExp(`^transfers/${UUID_PATTERN.source.slice(1, -1)}/quotes$`, "i"), methods: ["GET"] },

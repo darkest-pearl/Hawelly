@@ -8,10 +8,13 @@ import com.hawelly.sender.data.AttachmentUpload
 import com.hawelly.sender.data.HawellyRepository
 import com.hawelly.sender.data.PayoutMethod
 import com.hawelly.sender.data.Recipient
+import com.hawelly.sender.data.SenderTransferOptions
 import com.hawelly.sender.data.Transfer
 import com.hawelly.sender.data.TransferBundle
 import com.hawelly.sender.data.UpdateMetadata
 import com.hawelly.sender.data.User
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
 enum class AppScreen { DASHBOARD, RECIPIENTS, NEW_TRANSFER, TRANSFER_DETAIL, PROFILE }
@@ -23,6 +26,7 @@ data class HawellyUiState(
     val screen: AppScreen = AppScreen.DASHBOARD,
     val transfers: List<Transfer> = emptyList(),
     val recipients: List<Recipient> = emptyList(),
+    val transferOptions: SenderTransferOptions? = null,
     val selected: TransferBundle? = null,
     val update: UpdateMetadata? = null,
     val message: String? = null,
@@ -74,7 +78,14 @@ class HawellyViewModel(private val repository: HawellyRepository) : ViewModel() 
     }
 
     fun refreshRecipients() = action {
-        state.value = state.value.copy(recipients = repository.listRecipients())
+        coroutineScope {
+            val recipients = async { repository.listRecipients() }
+            val options = async { repository.transferOptions() }
+            state.value = state.value.copy(
+                recipients = recipients.await(),
+                transferOptions = options.await()
+            )
+        }
     }
 
     fun saveRecipient(

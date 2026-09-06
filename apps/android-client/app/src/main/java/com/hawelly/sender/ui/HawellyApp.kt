@@ -65,14 +65,17 @@ import com.hawelly.sender.R
 import com.hawelly.sender.data.AttachmentUpload
 import com.hawelly.sender.data.PayoutMethod
 import com.hawelly.sender.data.Recipient
+import com.hawelly.sender.data.SenderTransferOptions
 import com.hawelly.sender.data.Transfer
 import com.hawelly.sender.data.TransferBundle
+import com.hawelly.sender.data.recipientDestinations
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.math.BigDecimal
 import java.math.RoundingMode
+import java.util.Locale
 
 @Composable
 fun HawellyApp(viewModel: HawellyViewModel) {
@@ -322,7 +325,11 @@ private fun RecipientsScreen(state: HawellyUiState, viewModel: HawellyViewModel)
             Text("Your recipients", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Text("Recipient payout details stay linked to your account.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(14.dp))
-            Button(onClick = { editing = null; editorOpen = true }, modifier = Modifier.fillMaxWidth()) { Text("Add recipient") }
+            Button(
+                enabled = !state.busy && state.transferOptions?.corridors?.isNotEmpty() == true,
+                onClick = { editing = null; editorOpen = true },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Add recipient") }
         }
         if (state.recipients.isEmpty()) item { EmptyCard("No recipients", "Add a recipient before requesting a transfer.") }
         if (state.recipients.isNotEmpty()) item {
@@ -349,6 +356,7 @@ private fun RecipientsScreen(state: HawellyUiState, viewModel: HawellyViewModel)
     if (editorOpen) {
         RecipientEditor(
             existing = editing,
+            options = state.transferOptions,
             busy = state.busy,
             close = { editorOpen = false },
             save = { id, name, country, phone, method, details, address ->
@@ -378,18 +386,34 @@ private fun RecipientsScreen(state: HawellyUiState, viewModel: HawellyViewModel)
 @Composable
 private fun RecipientEditor(
     existing: Recipient?,
+    options: SenderTransferOptions?,
     busy: Boolean,
     close: () -> Unit,
     save: (String?, String, String, String?, PayoutMethod, Map<String, String>, String?) -> Unit
 ) {
+    val destinations = remember(options) { options?.recipientDestinations().orEmpty() }
     var name by remember(existing) { mutableStateOf(existing?.fullName.orEmpty()) }
-    var country by remember(existing) { mutableStateOf(existing?.country ?: "PH") }
+    var country by remember(existing, options) {
+        mutableStateOf(existing?.country ?: destinations.firstOrNull()?.country.orEmpty())
+    }
     var phone by remember(existing) { mutableStateOf(existing?.phone.orEmpty()) }
     var address by remember(existing) { mutableStateOf(existing?.address.orEmpty()) }
-    var method by remember(existing) { mutableStateOf(existing?.payoutMethod ?: PayoutMethod.BANK_TRANSFER) }
+    var method by remember(existing, options) {
+        mutableStateOf(
+            existing?.payoutMethod
+                ?: destinations.firstOrNull()?.payoutMethods?.firstOrNull()
+                ?: PayoutMethod.BANK_TRANSFER
+        )
+    }
     var detailOne by remember(existing) { mutableStateOf(existing?.let(::firstPayoutDetail).orEmpty()) }
     var detailTwo by remember(existing) { mutableStateOf(existing?.let(::secondPayoutDetail).orEmpty()) }
     var detailThree by remember(existing) { mutableStateOf(existing?.payoutDetails?.get("accountNumber").orEmpty()) }
+    val destination = destinations.firstOrNull { it.country == country }
+    val supportedMethods = destination?.payoutMethods.orEmpty()
+    val methodOptions = supportedMethods.ifEmpty {
+        existing?.payoutMethod?.let(::listOf).orEmpty()
+    }
+    val routeAvailable = destination != null && method in supportedMethods
     val labels = when (method) {
         PayoutMethod.BANK_TRANSFER -> listOf("Account name", "Bank name", "Account number")
         PayoutMethod.CASH_PICKUP -> listOf("Pickup city")
@@ -402,11 +426,38 @@ private fun RecipientEditor(
         text = {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 item { OutlinedTextField(name, { name = it }, label = { Text("Full name") }, modifier = Modifier.fillMaxWidth()) }
-                item { OutlinedTextField(country, { country = it.take(2) }, label = { Text("Country code") }, modifier = Modifier.fillMaxWidth()) }
+                item {
+                    Text("Country", fontWeight = FontWeight.SemiBold)
+                    destinations.forEach { option ->
+                        Row(
+                            Modifier.fillMaxWidth().clickable {
+                                country = option.country
+                                if (method !in option.payoutMethods) {
+                                    method = option.payoutMethods.first()
+                                }
+                            }.padding(vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(country == option.country, {
+                                country = option.country
+                                if (method !in option.payoutMethods) {
+                                    method = option.payoutMethods.first()
+                                }
+                            })
+                            Text("${countryName(option.country)} (${option.country})")
+                        }
+                    }
+                    if (!routeAvailable && existing != null) {
+                        Text(
+                            "This saved recipient route is no longer available. Choose an enabled country and payout method.",
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
                 item { OutlinedTextField(phone, { phone = it }, label = { Text("Phone (optional)") }, modifier = Modifier.fillMaxWidth()) }
                 item {
                     Text("Payout method", fontWeight = FontWeight.SemiBold)
-                    PayoutMethod.entries.forEach { option ->
+                    methodOptions.forEach { option ->
                         Row(Modifier.fillMaxWidth().clickable { method = option }.padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                             RadioButton(method == option, { method = option })
                             Text(words(option.name))
@@ -421,7 +472,7 @@ private fun RecipientEditor(
         },
         confirmButton = {
             Button(
-                enabled = !busy && name.isNotBlank() && country.length == 2 && detailOne.isNotBlank(),
+                enabled = !busy && routeAvailable && name.isNotBlank() && detailOne.isNotBlank(),
                 onClick = {
                     val details = when (method) {
                         PayoutMethod.BANK_TRANSFER -> mapOf("accountName" to detailOne, "bankName" to detailTwo, "accountNumber" to detailThree)
@@ -440,11 +491,24 @@ private fun RecipientEditor(
 @Composable
 private fun NewTransferScreen(state: HawellyUiState, viewModel: HawellyViewModel) {
     var selectedId by remember { mutableStateOf(state.recipients.firstOrNull()?.id) }
-    var origin by remember { mutableStateOf("AE") }
+    var origin by remember { mutableStateOf("") }
     var amount by remember { mutableStateOf("") }
-    var currency by remember { mutableStateOf("AED") }
+    var currency by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
     val recipient = state.recipients.firstOrNull { it.id == selectedId }
+    val corridors = state.transferOptions?.corridors.orEmpty().filter { corridor ->
+        recipient != null && corridor.destinationCountry == recipient.country &&
+            recipient.payoutMethod in corridor.payoutMethods
+    }
+    val origins = corridors.map { it.originCountry }.distinct()
+    val currencies = corridors.filter { it.originCountry == origin }
+        .flatMap { it.sendCurrencies }
+        .distinct()
+    LaunchedEffect(recipient?.id, state.transferOptions) {
+        val firstRoute = corridors.firstOrNull()
+        origin = firstRoute?.originCountry.orEmpty()
+        currency = firstRoute?.sendCurrencies?.firstOrNull().orEmpty()
+    }
     val minor = amountToMinor(amount)
     LazyColumn(
         Modifier.fillMaxSize(),
@@ -468,14 +532,36 @@ private fun NewTransferScreen(state: HawellyUiState, viewModel: HawellyViewModel
                     Column { Text(item.fullName, fontWeight = FontWeight.SemiBold); Text("${item.country} · ${words(item.payoutMethod.name)}") }
                 }
             }
-            item { OutlinedTextField(origin, { origin = it.take(2) }, label = { Text("Origin country") }, modifier = Modifier.fillMaxWidth()) }
+            if (corridors.isEmpty()) {
+                item { Text("No enabled transfer route is available for this recipient.", color = MaterialTheme.colorScheme.error) }
+            } else {
+                item { Text("Origin country", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
+                items(origins) { country ->
+                    Row(Modifier.fillMaxWidth().clickable {
+                        origin = country
+                        currency = corridors.first { it.originCountry == country }.sendCurrencies.first()
+                    }.padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(origin == country, {
+                            origin = country
+                            currency = corridors.first { it.originCountry == country }.sendCurrencies.first()
+                        })
+                        Text("${countryName(country)} ($country)")
+                    }
+                }
+            }
             item { OutlinedTextField(amount, { amount = it }, label = { Text("Send amount") }, modifier = Modifier.fillMaxWidth()) }
-            item { OutlinedTextField(currency, { currency = it.take(3) }, label = { Text("Send currency") }, modifier = Modifier.fillMaxWidth()) }
+            item { Text("Send currency", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
+            items(currencies) { item ->
+                Row(Modifier.fillMaxWidth().clickable { currency = item }.padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(currency == item, { currency = item })
+                    Text(item)
+                }
+            }
             item { OutlinedTextField(note, { note = it }, label = { Text("Note (optional)") }, modifier = Modifier.fillMaxWidth(), minLines = 2) }
             item {
                 Button(
                     onClick = { if (recipient != null && minor != null) viewModel.createTransfer(recipient, origin, minor, currency, note) },
-                    enabled = !state.busy && recipient != null && origin.length == 2 && currency.length == 3 && minor != null,
+                    enabled = !state.busy && recipient != null && origin in origins && currency in currencies && minor != null,
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("Submit request") }
             }
@@ -735,6 +821,10 @@ private fun StatusText(status: String) {
         )
     }
 }
+
+private fun countryName(country: String) = runCatching {
+    Locale.Builder().setRegion(country).build().getDisplayCountry(Locale.ENGLISH)
+}.getOrDefault(country).ifBlank { country }
 
 private fun words(value: String) = value.lowercase().replace('_', ' ').replaceFirstChar { it.titlecase() }
 private fun friendlyDate(value: String) = value.replace('T', ' ').replace("Z", "").take(16)

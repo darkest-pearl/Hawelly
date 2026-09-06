@@ -29,6 +29,7 @@
     "db:generate": "npm run db:generate --workspace @hawelly/api",
     "db:validate": "npm run db:validate --workspace @hawelly/api",
     "db:migrate:deploy": "npm run db:migrate:deploy --workspace @hawelly/api",
+    "admin:bootstrap": "node scripts/release/withEnv.mjs --env apps/api/.env -- node apps/api/dist/scripts/bootstrapAdmin.js",
     "smoke:health": "npm run smoke:health --workspace @hawelly/api",
     "smoke:beta": "npm run smoke:beta --workspace @hawelly/api",
     "security:client-boundary": "node scripts/securityCheck.mjs",
