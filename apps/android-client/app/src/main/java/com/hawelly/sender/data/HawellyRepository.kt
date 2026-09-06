@@ -68,6 +68,11 @@ class HawellyRepository(
     suspend fun listRecipients(): List<Recipient> =
         authenticated("GET", "/recipients").getJSONArray("recipients").objects().map(::parseRecipient)
 
+    suspend fun transferOptions(): SenderTransferOptions =
+        parseTransferOptions(
+            authenticated("GET", "/transfers/options").getJSONObject("options")
+        )
+
     suspend fun createRecipient(
         fullName: String,
         country: String,

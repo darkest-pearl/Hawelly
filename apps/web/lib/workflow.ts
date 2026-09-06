@@ -18,6 +18,44 @@ export interface RecipientRecord {
   updatedAt: string;
 }
 
+export interface TransferCorridorOption {
+  originCountry: string;
+  destinationCountry: string;
+  sendCurrencies: string[];
+  payoutMethods: PayoutMethod[];
+}
+
+export interface SenderTransferOptions {
+  quoteSlaMinutes: number;
+  corridors: TransferCorridorOption[];
+}
+
+export interface RecipientDestinationOption {
+  country: string;
+  payoutMethods: PayoutMethod[];
+}
+
+const regionNames = new Intl.DisplayNames(["en"], { type: "region" });
+
+export function countryLabel(country: string) {
+  return regionNames.of(country) || country;
+}
+
+export function recipientDestinationOptions(
+  options: SenderTransferOptions
+): RecipientDestinationOption[] {
+  const destinations = new Map<string, Set<PayoutMethod>>();
+  for (const corridor of options.corridors) {
+    const methods = destinations.get(corridor.destinationCountry) ?? new Set<PayoutMethod>();
+    for (const method of corridor.payoutMethods) methods.add(method);
+    destinations.set(corridor.destinationCountry, methods);
+  }
+  return [...destinations].map(([country, methods]) => ({
+    country,
+    payoutMethods: [...methods]
+  }));
+}
+
 export interface TransferRecord {
   id: string;
   reference: string;

@@ -2,7 +2,7 @@ import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "../app.js";
 import type { AuthConfig } from "../auth/config.js";
-import { hashPassword } from "../auth/password.js";
+import { hashPassword, verifyPassword } from "../auth/password.js";
 import { AuthService, type AuthPrincipal } from "../auth/service.js";
 import { createPrismaClient } from "../db/prisma.js";
 import { ActivitySource, Capability, PayoutMethod, Role, UserStatus } from "../generated/prisma/client.js";
@@ -10,6 +10,10 @@ import { resolveTestDatabaseUrl } from "../testSupport/database.js";
 import { TransferWorkflowService } from "../transfers/service.js";
 import { AdminWorkflowService } from "./service.js";
 import { DatabaseRuntimeConfigurationProvider } from "./runtimeConfiguration.js";
+import {
+  AdminBootstrapRefused,
+  bootstrapFirstAdmin
+} from "../../scripts/bootstrapAdmin.js";
 
 const databaseUrl = resolveTestDatabaseUrl(process.env.TEST_DATABASE_URL);
 const integrationDescribe = databaseUrl ? describe : describe.skip;
@@ -59,6 +63,60 @@ integrationDescribe("admin configuration and operations", () => {
   });
   afterAll(async () => { await database.$disconnect(); });
 
+  it("bootstraps exactly one audited administrator under concurrent attempts", async () => {
+    const firstConnection = createPrismaClient(databaseUrl || "postgresql://invalid");
+    const secondConnection = createPrismaClient(databaseUrl || "postgresql://invalid");
+    const attempts = await Promise.allSettled([
+      bootstrapFirstAdmin(firstConnection, {
+        fullName: "First Bootstrap Admin",
+        email: "first-bootstrap@example.com",
+        password: "FirstBootstrapPass123"
+      }, now),
+      bootstrapFirstAdmin(secondConnection, {
+        fullName: "Second Bootstrap Admin",
+        email: "second-bootstrap@example.com",
+        password: "SecondBootstrapPass123"
+      }, now)
+    ]).finally(async () => {
+      await Promise.all([firstConnection.$disconnect(), secondConnection.$disconnect()]);
+    });
+
+    const outcomes = attempts.map((attempt) =>
+      attempt.status === "fulfilled"
+        ? "fulfilled"
+        : `${attempt.reason instanceof Error ? attempt.reason.name : "Error"}: ${attempt.reason instanceof Error ? attempt.reason.message : "unknown"}`
+    );
+    expect(attempts.filter((attempt) => attempt.status === "fulfilled"), outcomes.join("; ")).toHaveLength(1);
+    const rejected = attempts.find((attempt) => attempt.status === "rejected");
+    expect(rejected?.status === "rejected" ? rejected.reason : null).toBeInstanceOf(
+      AdminBootstrapRefused
+    );
+    expect(await database.user.count({ where: { role: Role.ADMIN } })).toBe(1);
+    const administrator = await database.user.findFirstOrThrow({
+      where: { role: Role.ADMIN },
+      include: { staffProfile: true }
+    });
+    const expectedPassword = administrator.email === "first-bootstrap@example.com"
+      ? "FirstBootstrapPass123"
+      : "SecondBootstrapPass123";
+    expect(await verifyPassword(administrator.passwordHash, expectedPassword)).toBe(true);
+    expect(administrator.staffProfile?.operationalStatus).toBe("ACTIVE");
+    expect(await database.activityEvent.count({
+      where: {
+        actorUserId: null,
+        source: ActivitySource.SYSTEM,
+        actionType: "ADMIN_BOOTSTRAPPED",
+        entityId: administrator.id
+      }
+    })).toBe(1);
+
+    await expect(bootstrapFirstAdmin(database, {
+      fullName: "Third Bootstrap Admin",
+      email: "third-bootstrap@example.com",
+      password: "ThirdBootstrapPass123"
+    }, now)).rejects.toBeInstanceOf(AdminBootstrapRefused);
+  });
+
   it("keeps admin routes admin-only and creates staff without exposing credential material", async () => {
     const adminUser = await createUser("admin-access@example.com", Role.ADMIN);
     const sender = await createUser("sender-access@example.com", Role.SENDER);
@@ -103,6 +161,24 @@ integrationDescribe("admin configuration and operations", () => {
       transferCreateMaximum: 100,
       corridors: [{ originCountry: "AE", destinationCountry: "PH", sendCurrencies: ["AED"], payoutMethods: [PayoutMethod.BANK_TRANSFER] }]
     }, () => new Date(now), undefined, runtimeConfiguration);
+    const senderToken = await token(sender.email);
+    const senderApp = createApp(runtimeConfig, {
+      authService: auth,
+      transferWorkflowService: transfers
+    });
+    const options = await request(senderApp)
+      .get("/transfers/options")
+      .set(bearer(senderToken));
+    expect(options.status).toBe(200);
+    expect(options.body.options).toEqual({
+      quoteSlaMinutes: 20,
+      corridors: [{
+        originCountry: "AE",
+        destinationCountry: "GB",
+        sendCurrencies: ["AED"],
+        payoutMethods: ["BANK_TRANSFER"]
+      }]
+    });
     const context = { requestId: "admin-runtime-test", source: ActivitySource.API, ipAddress: "127.0.0.1", userAgent: "test" };
     await expect(transfers.createRecipient(principal, { fullName: "Blocked", country: "PH", payoutMethod: PayoutMethod.BANK_TRANSFER, payoutDetails: { accountName: "Blocked", bankName: "Bank", accountNumber: "123" } }, context)).rejects.toMatchObject({ code: "UNSUPPORTED_RECIPIENT_DESTINATION" });
     const recipient = await transfers.createRecipient(principal, { fullName: "Allowed", country: "GB", payoutMethod: PayoutMethod.BANK_TRANSFER, payoutDetails: { accountName: "Allowed", bankName: "Bank", accountNumber: "123" } }, context);

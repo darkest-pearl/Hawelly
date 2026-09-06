@@ -490,6 +490,38 @@ integrationDescribe("recipient and transfer workflow", () => {
     });
   });
 
+  it("exposes only the effective sender corridor options to authenticated senders", async () => {
+    await createUser("options-sender@example.com", Role.SENDER);
+    await createUser("options-staff@example.com", Role.STAFF);
+    const senderToken = await accessToken("options-sender@example.com");
+    const staffToken = await accessToken("options-staff@example.com");
+
+    expect((await request(app).get("/transfers/options")).status).toBe(401);
+    expect(
+      (await request(app).get("/transfers/options").set(authenticated(staffToken))).status
+    ).toBe(403);
+
+    const response = await request(app)
+      .get("/transfers/options")
+      .set(authenticated(senderToken));
+    expect(response.status).toBe(200);
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect(response.body).toEqual({
+      options: {
+        quoteSlaMinutes: 45,
+        corridors: [
+          {
+            originCountry: "AE",
+            destinationCountry: "PH",
+            sendCurrencies: ["AED"],
+            payoutMethods: ["BANK_TRANSFER", "CASH_PICKUP", "MOBILE_MONEY"]
+          }
+        ]
+      }
+    });
+    expect(JSON.stringify(response.body)).not.toMatch(/limit|evidence|maintenance|broadcast/i);
+  });
+
   it("serializes concurrent recipient patches without splitting payout method and details", async () => {
     await createUser("recipient-race@example.com", Role.SENDER);
     const token = await accessToken("recipient-race@example.com");

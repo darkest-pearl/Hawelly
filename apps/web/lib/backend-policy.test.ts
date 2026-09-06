@@ -13,6 +13,7 @@ describe("web backend boundary policy", () => {
     ["recipients", "POST"],
     [`recipients/${id}`, "PATCH"],
     ["transfers", "POST"],
+    ["transfers/options", "GET"],
     [`transfers/${id}/cancel`, "POST"],
     [`transfers/${id}/quotes`, "GET"],
     [`transfers/${id}/quotes/${id}/decision`, "POST"],

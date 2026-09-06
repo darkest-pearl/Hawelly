@@ -114,6 +114,15 @@ export function createTransfersRouter(
   router.use(requireAuth(authService), requireRole(Role.SENDER));
 
   router.get(
+    "/options",
+    asyncHandler(async (request, response) => {
+      const options = await workflow.getSenderOptions(principalFrom(request));
+      noStore(response);
+      response.json({ options });
+    })
+  );
+
+  router.get(
     "/",
     asyncHandler(async (request, response) => {
       const { limit } = listQuerySchema.parse(request.query);

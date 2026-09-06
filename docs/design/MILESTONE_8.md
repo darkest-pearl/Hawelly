@@ -15,6 +15,11 @@ version, and capabilities instead of trusting stale browser state. Admin
 responses omit password hashes, tokens, evidence object keys, and internal
 session records.
 
+The initial deployment uses a separate one-time interactive bootstrap command.
+It accepts no command-line credentials, masks password entry, serializes
+concurrent attempts with a database advisory lock, creates an audit event, and
+permanently refuses to run once any administrator exists.
+
 ## Versioned runtime policy
 
 Each configuration activation creates a new snapshot. A serializable
@@ -36,6 +41,12 @@ recipient/transfer validation, quote expiry, funding evidence, and payout
 evidence. Environment defaults remain the fallback before the first snapshot.
 Submitted transfer and quote economics remain immutable snapshots and are not
 rewritten when policy changes.
+
+Authenticated sender clients receive only the effective quote SLA and corridor
+options through `GET /transfers/options`. Web and Android recipient controls
+derive their countries and payout methods from that projection; they do not
+duplicate or bypass the server's active policy. No maintenance copy, evidence
+limits, transfer limits, or other administrative fields cross this boundary.
 
 ## Operations administration
 

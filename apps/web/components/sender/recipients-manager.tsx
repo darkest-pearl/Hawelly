@@ -2,13 +2,18 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch, errorMessage } from "../../lib/api-client";
-import { payoutMethodLabels, type RecipientRecord } from "../../lib/workflow";
+import {
+  payoutMethodLabels,
+  type RecipientRecord,
+  type SenderTransferOptions
+} from "../../lib/workflow";
 import { Button } from "../ui/button";
 import { RecipientDialog } from "./recipient-dialog";
 import { SenderShell } from "./sender-shell";
 
 export function RecipientsManager() {
   const [recipients, setRecipients] = useState<RecipientRecord[]>([]);
+  const [options, setOptions] = useState<SenderTransferOptions | null>(null);
   const [selected, setSelected] = useState<RecipientRecord | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -16,8 +21,12 @@ export function RecipientsManager() {
 
   const load = useCallback(async () => {
     try {
-      const result = await apiFetch<{ recipients: RecipientRecord[] }>("/recipients");
-      setRecipients(result.recipients);
+      const [recipientResult, optionResult] = await Promise.all([
+        apiFetch<{ recipients: RecipientRecord[] }>("/recipients"),
+        apiFetch<{ options: SenderTransferOptions }>("/transfers/options")
+      ]);
+      setRecipients(recipientResult.recipients);
+      setOptions(optionResult.options);
       setError("");
     } catch (caught) {
       setError(errorMessage(caught));
@@ -49,7 +58,7 @@ export function RecipientsManager() {
     <SenderShell active="Recipients">
       <section className="sender-page-heading compact-heading">
         <h1>Recipients</h1>
-        <Button onClick={openCreate} size="large">Add recipient</Button>
+        <Button disabled={!options?.corridors.length} onClick={openCreate} size="large">Add recipient</Button>
       </section>
       {error ? <p className="page-error" role="alert">{error}</p> : null}
       {loading ? <p className="page-state">Loading recipients…</p> : null}
@@ -67,7 +76,7 @@ export function RecipientsManager() {
           ))}
         </div>
       ) : null}
-      {dialogOpen ? (
+      {dialogOpen && options ? (
         <RecipientDialog
           key={selected?.id || "new"}
           onClose={() => setDialogOpen(false)}
@@ -80,10 +89,10 @@ export function RecipientsManager() {
             });
           }}
           open={dialogOpen}
+          options={options}
           recipient={selected}
         />
       ) : null}
     </SenderShell>
   );
 }
-
