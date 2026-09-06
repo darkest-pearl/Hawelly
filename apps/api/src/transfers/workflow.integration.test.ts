@@ -89,6 +89,7 @@ integrationDescribe("recipient and transfer workflow", () => {
           originCountry: "AE",
           destinationCountry: "PH",
           sendCurrencies: ["AED"],
+          receiveCurrencies: ["PHP"],
           payoutMethods: [
             PayoutMethod.BANK_TRANSFER,
             PayoutMethod.CASH_PICKUP,
@@ -508,12 +509,14 @@ integrationDescribe("recipient and transfer workflow", () => {
     expect(response.headers["cache-control"]).toBe("no-store");
     expect(response.body).toEqual({
       options: {
+        configurationVersion: null,
         quoteSlaMinutes: 45,
         corridors: [
           {
             originCountry: "AE",
             destinationCountry: "PH",
             sendCurrencies: ["AED"],
+            receiveCurrencies: ["PHP"],
             payoutMethods: ["BANK_TRANSFER", "CASH_PICKUP", "MOBILE_MONEY"]
           }
         ]
@@ -575,6 +578,7 @@ integrationDescribe("recipient and transfer workflow", () => {
         originCountry: "AE",
         destinationCountry: "PH",
         sendCurrencies: ["AED"],
+        receiveCurrencies: ["PHP"],
         payoutMethods: [PayoutMethod.BANK_TRANSFER]
       }]
     });
@@ -1066,6 +1070,69 @@ integrationDescribe("recipient and transfer workflow", () => {
     expect(afterExpiry.body.quotes[0].status).toBe("EXPIRED");
     expect((await database.transferRequest.findUniqueOrThrow({ where: { id: transferId } })).status).toBe(TransferStatus.QUOTE_EXPIRED);
     expect((await request(app).post(`/transfers/${transferId}/quotes/${third.body.quote.id}/decision`).set(authenticated(senderToken)).send({ decision: "ACCEPT" })).status).toBe(409);
+  });
+
+  it("rejects a quote currency that is not enabled for the transfer destination", async () => {
+    const sender = await createUser("currency-policy-sender@example.com", Role.SENDER);
+    const admin = await createUser("currency-policy-admin@example.com", Role.ADMIN);
+    const staff = await createUser("currency-policy-staff@example.com", Role.STAFF);
+    await database.staffCapabilityGrant.createMany({
+      data: [Capability.TRANSFER_REVIEW, Capability.QUOTE_MANAGE].map((capability) => ({
+        staffUserId: staff.id,
+        capability,
+        grantedByUserId: admin.id,
+        reason: "Quote currency policy test"
+      }))
+    });
+    const senderToken = await accessToken(sender.email);
+    const staffToken = await accessToken(staff.email);
+    const recipient = await createRecipient(senderToken);
+    const transfer = await createTransfer(senderToken, recipient.body.recipient.id);
+    const transferId = transfer.body.transfer.id as string;
+    await request(app).post(`/operations/transfers/${transferId}/review`).set(authenticated(staffToken)).send({ action: "START_QUOTING" });
+
+    const restrictedQuoteWorkflow = new QuoteWorkflowService(
+      database,
+      { defaultExpiryMinutes: 30 },
+      () => new Date(now),
+      {
+        getActive: async () => ({
+          version: 1,
+          quoteSlaMinutes: 45,
+          quoteDefaultExpiryMinutes: 30,
+          supportedOriginCountries: ["AE"],
+          supportedDestinationCountries: ["PH"],
+          supportedCurrencies: ["AED", "PHP"],
+          sendCurrenciesByOrigin: { AE: ["AED"] },
+          receiveCurrenciesByDestination: { PH: ["PHP"] },
+          payoutMethodsByDestination: { PH: [PayoutMethod.BANK_TRANSFER] },
+          evidenceMaxSizeBytes: 8 * 1024 * 1024,
+          evidenceAllowedContentTypes: ["application/pdf"],
+          transferLimitsByCurrency: {}
+        })
+      }
+    );
+    const restrictedApp = createApp(runtimeConfig, {
+      authService,
+      transferWorkflowService: workflow,
+      quoteWorkflowService: restrictedQuoteWorkflow
+    });
+    const response = await request(restrictedApp)
+      .post(`/operations/transfers/${transferId}/quotes`)
+      .set(authenticated(staffToken))
+      .send({
+        sendAmountMinor: "125000",
+        sendCurrency: "AED",
+        feeAmountMinor: "2500",
+        effectiveRate: "15.125",
+        receiveAmountMinor: "1852813",
+        receiveCurrency: "NGN",
+        expectedDeliveryAt: new Date(now.getTime() + 86_400_000).toISOString(),
+        validForMinutes: 30
+      });
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe("UNSUPPORTED_RECEIVE_CURRENCY");
+    expect(await database.quote.count({ where: { transferRequestId: transferId } })).toBe(0);
   });
 
   it("publishes accepted-quote funding instructions and keeps proof submission distinct from funds confirmation", async () => {

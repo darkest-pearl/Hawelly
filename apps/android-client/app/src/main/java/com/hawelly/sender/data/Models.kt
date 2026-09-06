@@ -1,5 +1,7 @@
 package com.hawelly.sender.data
 
+import java.util.Locale
+
 enum class PayoutMethod { BANK_TRANSFER, CASH_PICKUP, MOBILE_MONEY, OTHER }
 
 data class User(
@@ -31,28 +33,60 @@ data class TransferCorridorOption(
     val originCountry: String,
     val destinationCountry: String,
     val sendCurrencies: List<String>,
+    val receiveCurrencies: List<String>,
     val payoutMethods: List<PayoutMethod>
 )
 
 data class SenderTransferOptions(
+    val configurationVersion: Int?,
     val quoteSlaMinutes: Int,
     val corridors: List<TransferCorridorOption>
 )
 
 data class RecipientDestinationOption(
     val country: String,
+    val receiveCurrencies: List<String>,
     val payoutMethods: List<PayoutMethod>
 )
 
 fun SenderTransferOptions.recipientDestinations(): List<RecipientDestinationOption> {
-    val destinations = linkedMapOf<String, LinkedHashSet<PayoutMethod>>()
+    val destinations = linkedMapOf<String, Pair<LinkedHashSet<String>, LinkedHashSet<PayoutMethod>>>()
     corridors.forEach { corridor ->
-        destinations.getOrPut(corridor.destinationCountry, ::linkedSetOf)
-            .addAll(corridor.payoutMethods)
+        val destination = destinations.getOrPut(corridor.destinationCountry) {
+            linkedSetOf<String>() to linkedSetOf()
+        }
+        destination.first.addAll(corridor.receiveCurrencies)
+        destination.second.addAll(corridor.payoutMethods)
     }
-    return destinations.map { (country, methods) ->
-        RecipientDestinationOption(country, methods.toList())
+    return destinations.map { (country, policy) ->
+        RecipientDestinationOption(country, policy.first.toList(), policy.second.toList())
     }
+}
+
+fun countryOptionLabel(country: String): String {
+    val name = runCatching {
+        Locale.Builder().setRegion(country).build().getDisplayCountry(Locale.ENGLISH)
+    }.getOrDefault(country).ifBlank { country }
+    return "$name ($country)"
+}
+
+data class RecipientDestinationSelection(
+    val country: String,
+    val payoutMethod: PayoutMethod?
+)
+
+fun reconcileDestinationSelection(
+    destinations: List<RecipientDestinationOption>,
+    country: String,
+    payoutMethod: PayoutMethod?
+): RecipientDestinationSelection {
+    val destination = destinations.firstOrNull { it.country == country }
+        ?: return RecipientDestinationSelection("", null)
+    return RecipientDestinationSelection(
+        country = destination.country,
+        payoutMethod = payoutMethod?.takeIf(destination.payoutMethods::contains)
+            ?: destination.payoutMethods.firstOrNull()
+    )
 }
 
 data class TimelineEvent(

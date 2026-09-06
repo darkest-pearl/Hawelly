@@ -27,11 +27,15 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
@@ -51,6 +55,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -68,6 +73,8 @@ import com.hawelly.sender.data.Recipient
 import com.hawelly.sender.data.SenderTransferOptions
 import com.hawelly.sender.data.Transfer
 import com.hawelly.sender.data.TransferBundle
+import com.hawelly.sender.data.countryOptionLabel
+import com.hawelly.sender.data.reconcileDestinationSelection
 import com.hawelly.sender.data.recipientDestinations
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -75,7 +82,6 @@ import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.math.BigDecimal
 import java.math.RoundingMode
-import java.util.Locale
 
 @Composable
 fun HawellyApp(viewModel: HawellyViewModel) {
@@ -313,9 +319,10 @@ private fun TransferRow(transfer: Transfer, open: () -> Unit) {
 
 @Composable
 private fun RecipientsScreen(state: HawellyUiState, viewModel: HawellyViewModel) {
-    var editing by remember { mutableStateOf<Recipient?>(null) }
+    var editingId by rememberSaveable { mutableStateOf<String?>(null) }
     var deleting by remember { mutableStateOf<Recipient?>(null) }
-    var editorOpen by remember { mutableStateOf(false) }
+    var editorOpen by rememberSaveable { mutableStateOf(false) }
+    val editing = state.recipients.firstOrNull { it.id == editingId }
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp),
@@ -327,9 +334,14 @@ private fun RecipientsScreen(state: HawellyUiState, viewModel: HawellyViewModel)
             Spacer(Modifier.height(14.dp))
             Button(
                 enabled = !state.busy && state.transferOptions?.corridors?.isNotEmpty() == true,
-                onClick = { editing = null; editorOpen = true },
+                onClick = { editingId = null; editorOpen = true },
                 modifier = Modifier.fillMaxWidth()
             ) { Text("Add recipient") }
+            when {
+                state.transferOptions == null && state.busy -> Text("Loading recipient countries…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                state.transferOptions == null && state.error != null -> Text("Recipient countries are unavailable. Try again.", color = MaterialTheme.colorScheme.error)
+                state.transferOptions?.corridors?.isEmpty() == true -> Text("No recipient countries are currently configured.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
         if (state.recipients.isEmpty()) item { EmptyCard("No recipients", "Add a recipient before requesting a transfer.") }
         if (state.recipients.isNotEmpty()) item {
@@ -342,7 +354,7 @@ private fun RecipientsScreen(state: HawellyUiState, viewModel: HawellyViewModel)
                             Text("${recipient.country} · ${words(recipient.payoutMethod.name)}")
                             recipient.phone?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedButton(onClick = { editing = recipient; editorOpen = true }) { Text("Edit") }
+                                OutlinedButton(onClick = { editingId = recipient.id; editorOpen = true }) { Text("Edit") }
                                 TextButton(onClick = { deleting = recipient }) {
                                     Text("Delete", color = MaterialTheme.colorScheme.error)
                                 }
@@ -383,6 +395,7 @@ private fun RecipientsScreen(state: HawellyUiState, viewModel: HawellyViewModel)
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RecipientEditor(
     existing: Recipient?,
@@ -393,18 +406,11 @@ private fun RecipientEditor(
 ) {
     val destinations = remember(options) { options?.recipientDestinations().orEmpty() }
     var name by remember(existing) { mutableStateOf(existing?.fullName.orEmpty()) }
-    var country by remember(existing, options) {
-        mutableStateOf(existing?.country ?: destinations.firstOrNull()?.country.orEmpty())
-    }
+    var country by rememberSaveable(existing?.id) { mutableStateOf(existing?.country.orEmpty()) }
+    var countryExpanded by rememberSaveable { mutableStateOf(false) }
     var phone by remember(existing) { mutableStateOf(existing?.phone.orEmpty()) }
     var address by remember(existing) { mutableStateOf(existing?.address.orEmpty()) }
-    var method by remember(existing, options) {
-        mutableStateOf(
-            existing?.payoutMethod
-                ?: destinations.firstOrNull()?.payoutMethods?.firstOrNull()
-                ?: PayoutMethod.BANK_TRANSFER
-        )
-    }
+    var method by rememberSaveable(existing?.id) { mutableStateOf(existing?.payoutMethod ?: PayoutMethod.BANK_TRANSFER) }
     var detailOne by remember(existing) { mutableStateOf(existing?.let(::firstPayoutDetail).orEmpty()) }
     var detailTwo by remember(existing) { mutableStateOf(existing?.let(::secondPayoutDetail).orEmpty()) }
     var detailThree by remember(existing) { mutableStateOf(existing?.payoutDetails?.get("accountNumber").orEmpty()) }
@@ -414,6 +420,16 @@ private fun RecipientEditor(
         existing?.payoutMethod?.let(::listOf).orEmpty()
     }
     val routeAvailable = destination != null && method in supportedMethods
+    LaunchedEffect(options?.configurationVersion, existing?.id) {
+        val refreshed = destinations.firstOrNull { it.country == country }
+        if (refreshed != null) {
+            val selection = reconcileDestinationSelection(destinations, country, method)
+            country = selection.country
+            selection.payoutMethod?.let { method = it }
+        } else if (existing == null) {
+            country = ""
+        }
+    }
     val labels = when (method) {
         PayoutMethod.BANK_TRANSFER -> listOf("Account name", "Bank name", "Account number")
         PayoutMethod.CASH_PICKUP -> listOf("Pickup city")
@@ -427,30 +443,49 @@ private fun RecipientEditor(
             LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 item { OutlinedTextField(name, { name = it }, label = { Text("Full name") }, modifier = Modifier.fillMaxWidth()) }
                 item {
-                    Text("Country", fontWeight = FontWeight.SemiBold)
-                    destinations.forEach { option ->
-                        Row(
-                            Modifier.fillMaxWidth().clickable {
-                                country = option.country
-                                if (method !in option.payoutMethods) {
-                                    method = option.payoutMethods.first()
-                                }
-                            }.padding(vertical = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                    ExposedDropdownMenuBox(
+                        expanded = countryExpanded,
+                        onExpandedChange = { if (destinations.isNotEmpty() && !busy) countryExpanded = !countryExpanded }
+                    ) {
+                        OutlinedTextField(
+                            value = country.takeIf(String::isNotBlank)?.let(::countryOptionLabel).orEmpty(),
+                            onValueChange = {},
+                            readOnly = true,
+                            enabled = destinations.isNotEmpty() && !busy,
+                            label = { Text("Country") },
+                            placeholder = { Text(if (destinations.isEmpty()) "No countries configured" else "Select country") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = countryExpanded) },
+                            modifier = Modifier
+                                .menuAnchor(MenuAnchorType.PrimaryNotEditable, enabled = destinations.isNotEmpty() && !busy)
+                                .fillMaxWidth()
+                        )
+                        ExposedDropdownMenu(
+                            expanded = countryExpanded,
+                            onDismissRequest = { countryExpanded = false }
                         ) {
-                            RadioButton(country == option.country, {
-                                country = option.country
-                                if (method !in option.payoutMethods) {
-                                    method = option.payoutMethods.first()
-                                }
-                            })
-                            Text("${countryName(option.country)} (${option.country})")
+                            destinations.forEach { option ->
+                                DropdownMenuItem(
+                                    text = { Text(countryOptionLabel(option.country)) },
+                                    onClick = {
+                                        val selection = reconcileDestinationSelection(destinations, option.country, method)
+                                        country = selection.country
+                                        selection.payoutMethod?.let { method = it }
+                                        countryExpanded = false
+                                    }
+                                )
+                            }
                         }
                     }
                     if (!routeAvailable && existing != null) {
                         Text(
                             "This saved recipient route is no longer available. Choose an enabled country and payout method.",
                             color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                    destination?.let {
+                        Text(
+                            "Receiving currency: ${it.receiveCurrencies.joinToString()}",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -504,6 +539,7 @@ private fun NewTransferScreen(state: HawellyUiState, viewModel: HawellyViewModel
     val currencies = corridors.filter { it.originCountry == origin }
         .flatMap { it.sendCurrencies }
         .distinct()
+    val receiveCurrencies = corridors.flatMap { it.receiveCurrencies }.distinct()
     LaunchedEffect(recipient?.id, state.transferOptions) {
         val firstRoute = corridors.firstOrNull()
         origin = firstRoute?.originCountry.orEmpty()
@@ -545,7 +581,7 @@ private fun NewTransferScreen(state: HawellyUiState, viewModel: HawellyViewModel
                             origin = country
                             currency = corridors.first { it.originCountry == country }.sendCurrencies.first()
                         })
-                        Text("${countryName(country)} ($country)")
+                        Text(countryOptionLabel(country))
                     }
                 }
             }
@@ -555,6 +591,14 @@ private fun NewTransferScreen(state: HawellyUiState, viewModel: HawellyViewModel
                 Row(Modifier.fillMaxWidth().clickable { currency = item }.padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                     RadioButton(currency == item, { currency = item })
                     Text(item)
+                }
+            }
+            if (receiveCurrencies.isNotEmpty()) {
+                item {
+                    Text(
+                        "Recipient receives in ${receiveCurrencies.joinToString()}",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
             item { OutlinedTextField(note, { note = it }, label = { Text("Note (optional)") }, modifier = Modifier.fillMaxWidth(), minLines = 2) }
@@ -821,10 +865,6 @@ private fun StatusText(status: String) {
         )
     }
 }
-
-private fun countryName(country: String) = runCatching {
-    Locale.Builder().setRegion(country).build().getDisplayCountry(Locale.ENGLISH)
-}.getOrDefault(country).ifBlank { country }
 
 private fun words(value: String) = value.lowercase().replace('_', ' ').replaceFirstChar { it.titlecase() }
 private fun friendlyDate(value: String) = value.replace('T', ' ').replace("Z", "").take(16)

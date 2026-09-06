@@ -28,8 +28,8 @@ row. A partial unique index permits only one active snapshot, while a database
 trigger prevents deletion, modification of historical policy fields, and
 reactivation of an inactive snapshot.
 
-Snapshots define supported origin/destination countries, currencies, payout
-methods by destination, quote SLA and default expiry, evidence content types
+Snapshots define supported origin/destination countries, send currencies by
+origin, receiving currencies and payout methods by destination, quote SLA and default expiry, evidence content types
 and byte limit, optional transfer limits by currency, and broadcast or
 maintenance copy. Activation validates country/currency/enum mappings and may
 only narrow the environment-owned evidence ceilings. Broadcast and maintenance
@@ -38,13 +38,15 @@ separate notification delivery surface is designed.
 
 A single database-backed runtime provider supplies the active policy to
 recipient/transfer validation, quote expiry, funding evidence, and payout
-evidence. Environment defaults remain the fallback before the first snapshot.
+evidence. Sender corridor options are empty before the first active snapshot;
+environment defaults remain available only to explicitly constructed internal
+services and tests.
 Submitted transfer and quote economics remain immutable snapshots and are not
 rewritten when policy changes.
 
 Authenticated sender clients receive only the effective quote SLA and corridor
 options through `GET /transfers/options`. Web and Android recipient controls
-derive their countries and payout methods from that projection; they do not
+derive their countries, receiving currencies, and payout methods from that projection; they do not
 duplicate or bypass the server's active policy. No maintenance copy, evidence
 limits, transfer limits, or other administrative fields cross this boundary.
 
@@ -74,8 +76,12 @@ immediate session invalidation after access changes, immutable version history,
 one-active configuration enforcement, audit redaction/immutability, and
 environment ceilings on evidence policy.
 
-The review also confirmed that the flattened country/currency policy is an
-intentional product model rather than a hidden corridor matrix. No crypto
+The follow-up destination-options correction replaced the flattened currency
+list with explicit send-currency-by-origin and receive-currency-by-destination
+mappings. Activation validates exact mapping keys and members, incomplete
+legacy snapshots expose no sender corridors, quote creation revalidates the
+receiving currency, and the database trigger keeps the new policy fields
+immutable. No crypto
 settlement, agent portal, settlement batch, wallet, float, commission, or
 reconciliation architecture was introduced.
 

@@ -17,6 +17,7 @@ describe("transfer workflow configuration", () => {
           originCountry: "AE",
           destinationCountry: "PH",
           sendCurrencies: ["AED"],
+          receiveCurrencies: ["PHP"],
           payoutMethods: [
             PayoutMethod.BANK_TRANSFER,
             PayoutMethod.CASH_PICKUP,
@@ -35,6 +36,7 @@ describe("transfer workflow configuration", () => {
           originCountry: "ae",
           destinationCountry: "ph",
           sendCurrencies: ["aed", "AED"],
+          receiveCurrencies: ["php", "PHP"],
           payoutMethods: ["BANK_TRANSFER", "BANK_TRANSFER"]
         }
       ])
@@ -52,6 +54,7 @@ describe("transfer workflow configuration", () => {
           originCountry: "AE",
           destinationCountry: "PH",
           sendCurrencies: ["AED"],
+          receiveCurrencies: ["PHP"],
           payoutMethods: [PayoutMethod.BANK_TRANSFER]
         }
       ]
@@ -81,12 +84,14 @@ describe("transfer workflow configuration", () => {
             originCountry: "AE",
             destinationCountry: "PH",
             sendCurrencies: ["AED"],
+            receiveCurrencies: ["PHP"],
             payoutMethods: ["BANK_TRANSFER"]
           },
           {
             originCountry: "ae",
             destinationCountry: "ph",
             sendCurrencies: ["USD"],
+            receiveCurrencies: ["PHP"],
             payoutMethods: ["CASH_PICKUP"]
           }
         ])

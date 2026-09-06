@@ -1,10 +1,11 @@
 "use client";
 
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { apiFetch, errorMessage } from "../../lib/api-client";
 import {
   countryLabel,
   payoutMethodLabels,
+  reconcileRecipientDestination,
   recipientDestinationOptions,
   type PayoutMethod,
   type RecipientRecord,
@@ -31,7 +32,7 @@ export function RecipientDialog({
   onClose(): void;
   onSaved(recipient: RecipientRecord): void;
 }) {
-  const destinations = recipientDestinationOptions(options);
+  const destinations = useMemo(() => recipientDestinationOptions(options), [options]);
   const initialCountry = recipient?.country || destinations[0]?.country || "";
   const [fullName, setFullName] = useState(recipient?.fullName || "");
   const [country, setCountry] = useState(initialCountry);
@@ -66,6 +67,14 @@ export function RecipientDialog({
     destination && supportedMethods.includes(payoutMethod)
   );
 
+  useEffect(() => {
+    const selection = reconcileRecipientDestination(destinations, country, payoutMethod);
+    if (selection.country !== country) setCountry(selection.country);
+    if (selection.payoutMethod && selection.payoutMethod !== payoutMethod) {
+      setPayoutMethod(selection.payoutMethod);
+    }
+  }, [country, destinations, payoutMethod]);
+
   function payoutDetails() {
     if (payoutMethod === "BANK_TRANSFER") {
       return { accountName, bankName, accountNumber };
@@ -76,13 +85,13 @@ export function RecipientDialog({
   }
 
   function selectCountry(nextCountry: string) {
-    const nextMethods = destinations.find(
-      (item) => item.country === nextCountry
-    )?.payoutMethods || [];
-    setCountry(nextCountry);
-    if (!nextMethods.includes(payoutMethod) && nextMethods[0]) {
-      setPayoutMethod(nextMethods[0]);
-    }
+    const selection = reconcileRecipientDestination(
+      destinations,
+      nextCountry,
+      payoutMethod
+    );
+    setCountry(selection.country);
+    if (selection.payoutMethod) setPayoutMethod(selection.payoutMethod);
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -125,7 +134,8 @@ export function RecipientDialog({
       <form className="recipient-form" onSubmit={submit}>
         <div className="form-grid two-columns">
           <label>Full name<input id="recipient-full-name" maxLength={160} onChange={(event) => setFullName(event.target.value)} ref={firstFieldRef} required value={fullName} /></label>
-          <label>Country<select onChange={(event) => selectCountry(event.target.value)} required value={country}>{recipient && !destinations.some((item) => item.country === recipient.country) ? <option disabled value={recipient.country}>{countryLabel(recipient.country)} ({recipient.country}) — unavailable</option> : null}{destinations.map((item) => <option key={item.country} value={item.country}>{countryLabel(item.country)} ({item.country})</option>)}</select></label>
+          <label>Country<select disabled={!destinations.length || saving} onChange={(event) => selectCountry(event.target.value)} required value={country}><option disabled value="">{destinations.length ? "Select a country" : "No countries configured"}</option>{recipient && !destinations.some((item) => item.country === recipient.country) ? <option disabled value={recipient.country}>{countryLabel(recipient.country)} ({recipient.country}) — unavailable</option> : null}{destinations.map((item) => <option key={item.country} value={item.country}>{countryLabel(item.country)} ({item.country})</option>)}</select></label>
+          <label>Receiving currency<select disabled value={destination?.receiveCurrencies[0] || ""}><option value={destination?.receiveCurrencies[0] || ""}>{destination?.receiveCurrencies.join(", ") || "Select a country"}</option></select></label>
           <label>Phone<input autoComplete="tel" maxLength={16} onChange={(event) => setPhone(event.target.value)} placeholder="International format" type="tel" value={phone} /></label>
           <label>Address<input maxLength={500} onChange={(event) => setAddress(event.target.value)} value={address} /></label>
           <label className="form-span">Payout method<select onChange={(event) => setPayoutMethod(event.target.value as PayoutMethod)} value={payoutMethod}>{displayedMethods.map((method) => <option key={method} value={method}>{payoutMethodLabels[method]}</option>)}</select></label>

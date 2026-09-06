@@ -219,20 +219,32 @@ export class TransferWorkflowService {
     private readonly runtimeConfiguration?: RuntimeConfigurationProvider
   ) {}
 
-  private async effectivePolicy(): Promise<{ workflow: TransferWorkflowConfig; transferLimits: Readonly<Record<string, TransferLimit>> }> {
-    const active = await this.runtimeConfiguration?.getActive();
-    if (!active) return { workflow: this.config, transferLimits: {} };
+  private async effectivePolicy(): Promise<{ configurationVersion: number | null; workflow: TransferWorkflowConfig; transferLimits: Readonly<Record<string, TransferLimit>> }> {
+    if (!this.runtimeConfiguration) {
+      return { configurationVersion: null, workflow: this.config, transferLimits: {} };
+    }
+    const active = await this.runtimeConfiguration.getActive();
+    if (!active) {
+      return {
+        configurationVersion: null,
+        workflow: { ...this.config, corridors: [] },
+        transferLimits: {}
+      };
+    }
     return {
+      configurationVersion: active.version,
       workflow: {
         ...this.config,
         quoteSlaMinutes: active.quoteSlaMinutes,
         corridors: active.supportedOriginCountries.flatMap((originCountry) =>
-          active.supportedDestinationCountries.map((destinationCountry) => ({
-            originCountry,
-            destinationCountry,
-            sendCurrencies: active.supportedCurrencies,
-            payoutMethods: active.payoutMethodsByDestination[destinationCountry] ?? []
-          }))
+          active.supportedDestinationCountries.flatMap((destinationCountry) => {
+            const sendCurrencies = active.sendCurrenciesByOrigin[originCountry] ?? [];
+            const receiveCurrencies = active.receiveCurrenciesByDestination[destinationCountry] ?? [];
+            const payoutMethods = active.payoutMethodsByDestination[destinationCountry] ?? [];
+            return sendCurrencies.length && receiveCurrencies.length && payoutMethods.length
+              ? [{ originCountry, destinationCountry, sendCurrencies, receiveCurrencies, payoutMethods }]
+              : [];
+          })
         )
       },
       transferLimits: active.transferLimitsByCurrency
@@ -251,11 +263,13 @@ export class TransferWorkflowService {
     requireSender(principal);
     const policy = await this.effectivePolicy();
     return {
+      configurationVersion: policy.configurationVersion,
       quoteSlaMinutes: policy.workflow.quoteSlaMinutes,
       corridors: policy.workflow.corridors.map((corridor) => ({
         originCountry: corridor.originCountry,
         destinationCountry: corridor.destinationCountry,
         sendCurrencies: [...corridor.sendCurrencies],
+        receiveCurrencies: [...corridor.receiveCurrencies],
         payoutMethods: [...corridor.payoutMethods]
       }))
     };

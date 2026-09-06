@@ -9,6 +9,7 @@ const corridorSchema = z
     originCountry: countryCodeSchema,
     destinationCountry: countryCodeSchema,
     sendCurrencies: z.array(currencyCodeSchema).min(1).max(20),
+    receiveCurrencies: z.array(currencyCodeSchema).min(1).max(20),
     payoutMethods: z.array(z.enum(PayoutMethod)).min(1).max(10)
   })
   .strict();
@@ -19,6 +20,7 @@ export interface TransferCorridor {
   originCountry: string;
   destinationCountry: string;
   sendCurrencies: readonly string[];
+  receiveCurrencies: readonly string[];
   payoutMethods: readonly PayoutMethod[];
 }
 
@@ -38,6 +40,7 @@ const DEFAULT_CORRIDORS: readonly TransferCorridor[] = [
     originCountry: "AE",
     destinationCountry: "PH",
     sendCurrencies: ["AED"],
+    receiveCurrencies: ["PHP"],
     payoutMethods: [
       PayoutMethod.BANK_TRANSFER,
       PayoutMethod.CASH_PICKUP,
@@ -91,6 +94,7 @@ function parseCorridors(value: string | undefined): readonly TransferCorridor[] 
   return parsed.data.map((corridor) => ({
     ...corridor,
     sendCurrencies: [...new Set(corridor.sendCurrencies)],
+    receiveCurrencies: [...new Set(corridor.receiveCurrencies)],
     payoutMethods: [...new Set(corridor.payoutMethods)]
   }));
 }

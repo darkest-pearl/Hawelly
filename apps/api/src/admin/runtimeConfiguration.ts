@@ -13,6 +13,8 @@ export interface ActiveRuntimeConfiguration {
   supportedOriginCountries: readonly string[];
   supportedDestinationCountries: readonly string[];
   supportedCurrencies: readonly string[];
+  sendCurrenciesByOrigin: Readonly<Record<string, readonly string[]>>;
+  receiveCurrenciesByDestination: Readonly<Record<string, readonly string[]>>;
   payoutMethodsByDestination: Readonly<Record<string, readonly PayoutMethod[]>>;
   evidenceMaxSizeBytes: number;
   evidenceAllowedContentTypes: readonly string[];
@@ -37,6 +39,16 @@ export function runtimeConfigurationProjection(
       ([country, methods]) => [country, Array.isArray(methods) ? methods as PayoutMethod[] : []]
     )
   );
+  const sendCurrencies = Object.fromEntries(
+    Object.entries(objectValue(configuration.sendCurrenciesByOrigin)).map(
+      ([country, currencies]) => [country, Array.isArray(currencies) ? currencies as string[] : []]
+    )
+  );
+  const receiveCurrencies = Object.fromEntries(
+    Object.entries(objectValue(configuration.receiveCurrenciesByDestination)).map(
+      ([country, currencies]) => [country, Array.isArray(currencies) ? currencies as string[] : []]
+    )
+  );
   const transferLimits = Object.fromEntries(
     Object.entries(objectValue(configuration.transferLimitsByCurrency)).map(
       ([currency, limits]) => [currency, objectValue(limits as Prisma.JsonValue) as TransferLimit]
@@ -49,6 +61,8 @@ export function runtimeConfigurationProjection(
     supportedOriginCountries: configuration.supportedOriginCountries,
     supportedDestinationCountries: configuration.supportedDestinationCountries,
     supportedCurrencies: configuration.supportedCurrencies,
+    sendCurrenciesByOrigin: sendCurrencies,
+    receiveCurrenciesByDestination: receiveCurrencies,
     payoutMethodsByDestination: payoutMethods,
     evidenceMaxSizeBytes: Number(configuration.evidenceMaxSizeBytes),
     evidenceAllowedContentTypes: configuration.evidenceAllowedContentTypes,
