@@ -61,6 +61,8 @@ export const activateConfigurationSchema = z.object({
   supportedOriginCountries: z.array(countryCodeSchema).min(1).max(100),
   supportedDestinationCountries: z.array(countryCodeSchema).min(1).max(100),
   supportedCurrencies: z.array(currencyCodeSchema).min(1).max(100),
+  sendCurrenciesByOrigin: z.record(countryCodeSchema, z.array(currencyCodeSchema).min(1).max(20)),
+  receiveCurrenciesByDestination: z.record(countryCodeSchema, z.array(currencyCodeSchema).min(1).max(20)),
   payoutMethodsByDestination: z.record(countryCodeSchema, z.array(z.enum(PayoutMethod)).min(1).max(4)),
   evidenceMaxSizeBytes: z.number().int().min(1_024).max(25 * 1024 * 1024),
   evidenceAllowedContentTypes: z.array(z.string().trim().min(1).max(160)).min(1).max(20),

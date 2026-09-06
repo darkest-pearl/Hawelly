@@ -78,6 +78,8 @@ function configurationProjection(configuration: {
   supportedOriginCountries: string[];
   supportedDestinationCountries: string[];
   supportedCurrencies: string[];
+  sendCurrenciesByOrigin: Prisma.JsonValue;
+  receiveCurrenciesByDestination: Prisma.JsonValue;
   payoutMethodsByDestination: Prisma.JsonValue;
   evidenceMaxSizeBytes: bigint;
   evidenceAllowedContentTypes: string[];
@@ -96,6 +98,8 @@ function configurationProjection(configuration: {
     supportedOriginCountries: configuration.supportedOriginCountries,
     supportedDestinationCountries: configuration.supportedDestinationCountries,
     supportedCurrencies: configuration.supportedCurrencies,
+    sendCurrenciesByOrigin: configuration.sendCurrenciesByOrigin,
+    receiveCurrenciesByDestination: configuration.receiveCurrenciesByDestination,
     payoutMethodsByDestination: configuration.payoutMethodsByDestination,
     evidenceMaxSizeBytes: configuration.evidenceMaxSizeBytes.toString(),
     evidenceAllowedContentTypes: configuration.evidenceAllowedContentTypes,
@@ -346,8 +350,9 @@ export class AdminWorkflowService {
       throw new PublicApiError(400, "DUPLICATE_CONFIGURATION_VALUE", "Configuration lists must not contain duplicates");
     }
     const destinationSet = new Set(input.supportedDestinationCountries);
-    const mappingKeys = Object.keys(input.payoutMethodsByDestination);
-    if (mappingKeys.length !== destinationSet.size || mappingKeys.some((key) => !destinationSet.has(key))) {
+    const originSet = new Set(input.supportedOriginCountries);
+    const payoutMappingKeys = Object.keys(input.payoutMethodsByDestination);
+    if (payoutMappingKeys.length !== destinationSet.size || payoutMappingKeys.some((key) => !destinationSet.has(key))) {
       throw new PublicApiError(400, "INVALID_PAYOUT_METHOD_CONFIGURATION", "Every supported destination must have payout methods");
     }
     for (const methods of Object.values(input.payoutMethodsByDestination)) {
@@ -355,6 +360,35 @@ export class AdminWorkflowService {
         throw new PublicApiError(400, "DUPLICATE_CONFIGURATION_VALUE", "Payout methods must not contain duplicates");
       }
     }
+    const supportedCurrencySet = new Set(input.supportedCurrencies);
+    const validateCurrencyMapping = (
+      mapping: Readonly<Record<string, readonly string[]>>,
+      countries: ReadonlySet<string>,
+      code: string,
+      message: string
+    ) => {
+      const keys = Object.keys(mapping);
+      if (keys.length !== countries.size || keys.some((key) => !countries.has(key))) {
+        throw new PublicApiError(400, code, message);
+      }
+      if (Object.values(mapping).some((currencies) =>
+        new Set(currencies).size !== currencies.length ||
+        currencies.some((currency) => !supportedCurrencySet.has(currency)))) {
+        throw new PublicApiError(400, code, message);
+      }
+    };
+    validateCurrencyMapping(
+      input.sendCurrenciesByOrigin,
+      originSet,
+      "INVALID_SEND_CURRENCY_CONFIGURATION",
+      "Every supported origin must have supported send currencies"
+    );
+    validateCurrencyMapping(
+      input.receiveCurrenciesByDestination,
+      destinationSet,
+      "INVALID_RECEIVE_CURRENCY_CONFIGURATION",
+      "Every supported destination must have supported receive currencies"
+    );
     const permittedContentTypes = new Set(this.evidencePolicyCeiling.allowedContentTypes);
     if (input.evidenceMaxSizeBytes > this.evidencePolicyCeiling.maximumProofBytes || input.evidenceAllowedContentTypes.some((type) => !permittedContentTypes.has(type))) {
       throw new PublicApiError(400, "EVIDENCE_POLICY_EXCEEDS_STORAGE_LIMIT", "Evidence policy cannot exceed the environment storage limits");
@@ -385,6 +419,8 @@ export class AdminWorkflowService {
           supportedOriginCountries: input.supportedOriginCountries,
           supportedDestinationCountries: input.supportedDestinationCountries,
           supportedCurrencies: input.supportedCurrencies,
+          sendCurrenciesByOrigin: input.sendCurrenciesByOrigin,
+          receiveCurrenciesByDestination: input.receiveCurrenciesByDestination,
           payoutMethodsByDestination: input.payoutMethodsByDestination,
           evidenceMaxSizeBytes: BigInt(input.evidenceMaxSizeBytes),
           evidenceAllowedContentTypes: input.evidenceAllowedContentTypes,

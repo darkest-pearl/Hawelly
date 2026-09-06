@@ -62,6 +62,7 @@ export function RecipientsManager() {
       </section>
       {error ? <p className="page-error" role="alert">{error}</p> : null}
       {loading ? <p className="page-state">Loading recipients…</p> : null}
+      {!loading && options?.corridors.length === 0 ? <p className="page-state">No recipient countries are currently configured.</p> : null}
       {!loading && !recipients.length ? (
         <section className="empty-workflow"><h2>No recipients yet</h2><p>Add a recipient before requesting a transfer.</p></section>
       ) : null}

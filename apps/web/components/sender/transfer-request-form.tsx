@@ -76,6 +76,9 @@ export function TransferRequestForm() {
         .flatMap((item) => item.sendCurrencies)
     )
   ];
+  const receiveCurrencies = [
+    ...new Set(recipientCorridors.flatMap((item) => item.receiveCurrencies))
+  ];
   const amountMinor = majorToMinor(amount);
 
   function selectRecipient(nextRecipientId: string) {
@@ -132,6 +135,7 @@ export function TransferRequestForm() {
       <section className="sender-page-heading compact-heading"><h1>Request a transfer</h1></section>
       {error ? <p className="page-error" role="alert">{error}</p> : null}
       {loading ? <p className="page-state">Loading recipients…</p> : null}
+      {!loading && options?.corridors.length === 0 ? <p className="page-state">No transfer corridors are currently configured.</p> : null}
       {!loading ? (
         <div className="transfer-request-layout">
           <form className="transfer-request-panel" onSubmit={submit}>
@@ -148,6 +152,7 @@ export function TransferRequestForm() {
                 <label>Origin country<select disabled={originCountries.length <= 1} onChange={(event) => selectOrigin(event.target.value)} required value={originCountry}><option value="">Select origin</option>{originCountries.map((country) => <option key={country} value={country}>{countryLabel(country)} ({country})</option>)}</select></label>
                 <label>Destination country<select disabled value={selected?.country || ""}><option value={selected?.country || ""}>{selected ? `${countryLabel(selected.country)} (${selected.country})` : "Select a recipient"}</option></select></label>
                 <label>Send currency<select disabled={sendCurrencies.length <= 1} onChange={(event) => setSendCurrency(event.target.value)} required value={sendCurrency}><option value="">Select currency</option>{sendCurrencies.map((currency) => <option key={currency} value={currency}>{currency}</option>)}</select></label>
+                <label>Receiving currency<select disabled value={receiveCurrencies[0] || ""}><option value={receiveCurrencies[0] || ""}>{receiveCurrencies.join(", ") || "No receiving currency configured"}</option></select></label>
                 <label>You send<input inputMode="decimal" onChange={(event) => setAmount(event.target.value)} placeholder="Enter amount" required value={amount} /></label>
                 <label className="form-span">Payout method<select disabled value={selected?.payoutMethod || "BANK_TRANSFER"}><option value={selected?.payoutMethod || "BANK_TRANSFER"}>{selected ? payoutMethodLabels[selected.payoutMethod] : "Select a recipient"}</option></select></label>
                 <label className="form-span">Optional note<textarea maxLength={1_000} onChange={(event) => setNote(event.target.value)} placeholder="Add a note (optional)" rows={4} value={note} /></label>

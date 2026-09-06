@@ -139,6 +139,12 @@ cd apps/android-client
 See `apps/android-client/README.md` for API-origin, release-signing, evidence,
 session-storage, and update-distribution requirements.
 
+Web and Android recipient country controls consume the authenticated
+`GET /transfers/options` projection. Country labels are rendered as full English
+names with ISO codes, while submitted values remain the server-issued ISO code.
+Receiving currencies and payout methods are derived from the same immutable
+runtime-policy version; no client-side country fallback activates a corridor.
+
 ## Status
 
 Milestones 0 through 12 are complete and the documented v1 beta criteria are

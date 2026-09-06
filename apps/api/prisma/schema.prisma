@@ -440,6 +440,8 @@ model AdminConfiguration {
   supportedOriginCountries     String[]
   supportedDestinationCountries String[]
   supportedCurrencies          String[]
+  sendCurrenciesByOrigin       Json
+  receiveCurrenciesByDestination Json
   payoutMethodsByDestination   Json
   evidenceMaxSizeBytes         BigInt
   evidenceAllowedContentTypes  String[]

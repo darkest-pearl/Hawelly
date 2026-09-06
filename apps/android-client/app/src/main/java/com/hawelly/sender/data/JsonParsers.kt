@@ -40,12 +40,14 @@ internal fun parseRecipient(value: JSONObject) = Recipient(
 )
 
 internal fun parseTransferOptions(value: JSONObject) = SenderTransferOptions(
+    configurationVersion = if (value.isNull("configurationVersion")) null else value.getInt("configurationVersion"),
     quoteSlaMinutes = value.getInt("quoteSlaMinutes"),
     corridors = value.getJSONArray("corridors").objects().map { corridor ->
         TransferCorridorOption(
             originCountry = corridor.getString("originCountry"),
             destinationCountry = corridor.getString("destinationCountry"),
             sendCurrencies = corridor.getJSONArray("sendCurrencies").strings(),
+            receiveCurrencies = corridor.getJSONArray("receiveCurrencies").strings(),
             payoutMethods = corridor.getJSONArray("payoutMethods").strings()
                 .map { PayoutMethod.valueOf(it) }
         )

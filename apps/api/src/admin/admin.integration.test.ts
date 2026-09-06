@@ -49,7 +49,8 @@ integrationDescribe("admin configuration and operations", () => {
   const bearer = (value: string) => ({ Authorization: `Bearer ${value}` });
   const configuration = (overrides: Record<string, unknown> = {}) => ({
     quoteSlaMinutes: 20, quoteDefaultExpiryMinutes: 15,
-    supportedOriginCountries: ["AE"], supportedDestinationCountries: ["GB"], supportedCurrencies: ["AED"],
+    supportedOriginCountries: ["AE"], supportedDestinationCountries: ["GB"], supportedCurrencies: ["AED", "GBP"],
+    sendCurrenciesByOrigin: { AE: ["AED"] }, receiveCurrenciesByDestination: { GB: ["GBP"] },
     payoutMethodsByDestination: { GB: ["BANK_TRANSFER"] }, evidenceMaxSizeBytes: 2_000_000,
     evidenceAllowedContentTypes: ["application/pdf"], transferLimitsByCurrency: { AED: { maximumAmountMinor: "500000" } },
     broadcastMessage: "Service is operating normally.", maintenanceMessage: null,
@@ -144,7 +145,28 @@ integrationDescribe("admin configuration and operations", () => {
     const adminUser = await createUser("admin-config@example.com", Role.ADMIN);
     const sender = await createUser("sender-config@example.com", Role.SENDER);
     const adminToken = await token(adminUser.email);
+    const senderToken = await token(sender.email);
+    const noConfigurationTransfers = new TransferWorkflowService(database, {
+      quoteSlaMinutes: 45,
+      maximumRecipientsPerSender: 100,
+      recipientCreateWindowSeconds: 3_600,
+      recipientCreateMaximum: 100,
+      maximumActiveTransfersPerSender: 100,
+      transferCreateWindowSeconds: 3_600,
+      transferCreateMaximum: 100,
+      corridors: [{ originCountry: "AE", destinationCountry: "PH", sendCurrencies: ["AED"], receiveCurrencies: ["PHP"], payoutMethods: [PayoutMethod.BANK_TRANSFER] }]
+    }, () => new Date(now), undefined, runtimeConfiguration);
+    const noConfigurationApp = createApp(runtimeConfig, {
+      authService: auth,
+      transferWorkflowService: noConfigurationTransfers
+    });
+    expect((await request(noConfigurationApp).get("/transfers/options").set(bearer(senderToken))).body.options).toEqual({
+      configurationVersion: null,
+      quoteSlaMinutes: 45,
+      corridors: []
+    });
     expect((await request(app).post("/admin/configuration").set(bearer(adminToken)).send(configuration({ confirmed: false }))).status).toBe(400);
+    expect((await request(app).post("/admin/configuration").set(bearer(adminToken)).send(configuration({ receiveCurrenciesByDestination: { GB: ["EUR"] } }))).status).toBe(400);
     const first = await request(app).post("/admin/configuration").set(bearer(adminToken)).send(configuration());
     expect(first.status, JSON.stringify(first.body)).toBe(201);
     expect(first.body.configuration).toMatchObject({ version: 1, active: true, quoteSlaMinutes: 20 });
@@ -159,9 +181,8 @@ integrationDescribe("admin configuration and operations", () => {
       maximumActiveTransfersPerSender: 100,
       transferCreateWindowSeconds: 3_600,
       transferCreateMaximum: 100,
-      corridors: [{ originCountry: "AE", destinationCountry: "PH", sendCurrencies: ["AED"], payoutMethods: [PayoutMethod.BANK_TRANSFER] }]
+      corridors: [{ originCountry: "AE", destinationCountry: "PH", sendCurrencies: ["AED"], receiveCurrencies: ["PHP"], payoutMethods: [PayoutMethod.BANK_TRANSFER] }]
     }, () => new Date(now), undefined, runtimeConfiguration);
-    const senderToken = await token(sender.email);
     const senderApp = createApp(runtimeConfig, {
       authService: auth,
       transferWorkflowService: transfers
@@ -171,11 +192,13 @@ integrationDescribe("admin configuration and operations", () => {
       .set(bearer(senderToken));
     expect(options.status).toBe(200);
     expect(options.body.options).toEqual({
+      configurationVersion: 1,
       quoteSlaMinutes: 20,
       corridors: [{
         originCountry: "AE",
         destinationCountry: "GB",
         sendCurrencies: ["AED"],
+        receiveCurrencies: ["GBP"],
         payoutMethods: ["BANK_TRANSFER"]
       }]
     });
@@ -188,6 +211,7 @@ integrationDescribe("admin configuration and operations", () => {
     expect(second.body.configuration.version).toBe(2);
     const old = await database.adminConfiguration.findUniqueOrThrow({ where: { version: 1 } });
     await expect(database.adminConfiguration.update({ where: { id: old.id }, data: { quoteSlaMinutes: 30 } })).rejects.toThrow(/snapshots are immutable/i);
+    await expect(database.adminConfiguration.update({ where: { id: old.id }, data: { receiveCurrenciesByDestination: { GB: ["EUR"] } } })).rejects.toThrow(/snapshots are immutable/i);
     await expect(database.adminConfiguration.delete({ where: { id: old.id } })).rejects.toThrow(/cannot be deleted/i);
   });
 

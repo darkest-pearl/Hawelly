@@ -135,6 +135,17 @@ export class QuoteWorkflowService {
       const transfer = await transaction.transferRequest.findUnique({ where: { id: transferId } });
       if (!transfer) throw new PublicApiError(404, "TRANSFER_NOT_FOUND", "Transfer not found");
       if (
+        activeConfiguration &&
+        !(activeConfiguration.receiveCurrenciesByDestination[transfer.destinationCountry] ?? [])
+          .includes(input.receiveCurrency)
+      ) {
+        throw new PublicApiError(
+          400,
+          "UNSUPPORTED_RECEIVE_CURRENCY",
+          "Quote receive currency is not supported for this destination"
+        );
+      }
+      if (
         transfer.status !== TransferStatus.QUOTING &&
         transfer.status !== TransferStatus.QUOTED
       ) {

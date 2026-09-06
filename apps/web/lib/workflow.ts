@@ -22,16 +22,19 @@ export interface TransferCorridorOption {
   originCountry: string;
   destinationCountry: string;
   sendCurrencies: string[];
+  receiveCurrencies: string[];
   payoutMethods: PayoutMethod[];
 }
 
 export interface SenderTransferOptions {
+  configurationVersion: number | null;
   quoteSlaMinutes: number;
   corridors: TransferCorridorOption[];
 }
 
 export interface RecipientDestinationOption {
   country: string;
+  receiveCurrencies: string[];
   payoutMethods: PayoutMethod[];
 }
 
@@ -44,16 +47,36 @@ export function countryLabel(country: string) {
 export function recipientDestinationOptions(
   options: SenderTransferOptions
 ): RecipientDestinationOption[] {
-  const destinations = new Map<string, Set<PayoutMethod>>();
+  const destinations = new Map<string, { receiveCurrencies: Set<string>; payoutMethods: Set<PayoutMethod> }>();
   for (const corridor of options.corridors) {
-    const methods = destinations.get(corridor.destinationCountry) ?? new Set<PayoutMethod>();
-    for (const method of corridor.payoutMethods) methods.add(method);
-    destinations.set(corridor.destinationCountry, methods);
+    const destination = destinations.get(corridor.destinationCountry) ?? {
+      receiveCurrencies: new Set<string>(),
+      payoutMethods: new Set<PayoutMethod>()
+    };
+    for (const currency of corridor.receiveCurrencies) destination.receiveCurrencies.add(currency);
+    for (const method of corridor.payoutMethods) destination.payoutMethods.add(method);
+    destinations.set(corridor.destinationCountry, destination);
   }
-  return [...destinations].map(([country, methods]) => ({
+  return [...destinations].map(([country, policy]) => ({
     country,
-    payoutMethods: [...methods]
+    receiveCurrencies: [...policy.receiveCurrencies],
+    payoutMethods: [...policy.payoutMethods]
   }));
+}
+
+export function reconcileRecipientDestination(
+  destinations: RecipientDestinationOption[],
+  country: string,
+  payoutMethod: PayoutMethod | null
+) {
+  const destination = destinations.find((item) => item.country === country);
+  if (!destination) return { country: "", payoutMethod: null };
+  return {
+    country: destination.country,
+    payoutMethod: payoutMethod && destination.payoutMethods.includes(payoutMethod)
+      ? payoutMethod
+      : destination.payoutMethods[0] || null
+  };
 }
 
 export interface TransferRecord {
