@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import { getPortalNavigation } from "../../lib/portal";
 import { useAuth } from "../auth/auth-provider";
@@ -25,10 +26,10 @@ export function SenderShell({
   return (
     <main className="sender-portal">
       <header className="sender-header">
-        <a className="brand" href="/sender" aria-label="Hawelly sender home">Hawelly</a>
+        <Link className="brand" href="/sender" aria-label="Hawelly sender home">Hawelly</Link>
         <nav aria-label="Sender navigation" className={menuOpen ? "is-open" : ""}>
           {navigation.map((item) => (
-            <a aria-current={item.label === active ? "page" : undefined} href={item.href} key={item.label}>{item.label}</a>
+            <Link aria-current={item.label === active ? "page" : undefined} href={item.href} key={item.label}>{item.label}</Link>
           ))}
         </nav>
         <button className="sender-user" onClick={() => void logout()} type="button" aria-label="Sign out">
@@ -48,4 +49,3 @@ export function SenderShell({
     </main>
   );
 }
-

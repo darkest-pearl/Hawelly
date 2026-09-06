@@ -15,6 +15,7 @@ interface AuthContextValue {
   user: SessionUser | null;
   loading: boolean;
   login(email: string, password: string): Promise<SessionUser>;
+  register(fullName: string, email: string, password: string): Promise<SessionUser>;
   logout(): Promise<void>;
 }
 
@@ -26,7 +27,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let active = true;
-    apiFetch<SessionUser>("/me")
+    fetch("/api/auth/status", { cache: "no-store" })
+      .then(async (response) => {
+        const status = (await response.json().catch(() => null)) as
+          | { hasSession?: boolean }
+          | null;
+        if (!response.ok || !status?.hasSession) return null;
+        return apiFetch<SessionUser>("/me");
+      })
       .then((current) => {
         if (active) setUser(current);
       })
@@ -58,14 +66,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return current;
   }, []);
 
+  const register = useCallback(
+    async (fullName: string, email: string, password: string) => {
+      const response = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fullName, email, password })
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | { user?: SessionUser; error?: { message?: string } }
+        | null;
+      if (!response.ok || !payload?.user) {
+        throw new Error(payload?.error?.message || "Account creation failed");
+      }
+      const current = await apiFetch<SessionUser>("/me");
+      setUser(current);
+      return current;
+    },
+    []
+  );
+
   const logout = useCallback(async () => {
     const response = await fetch("/api/auth/logout", { method: "POST" });
     if (response.ok) setUser(null);
   }, []);
 
   const value = useMemo(
-    () => ({ user, loading, login, logout }),
-    [user, loading, login, logout]
+    () => ({ user, loading, login, register, logout }),
+    [user, loading, login, register, logout]
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

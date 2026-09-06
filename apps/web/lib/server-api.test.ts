@@ -1,13 +1,63 @@
-import { NextRequest } from "next/server";
-import { describe, expect, it } from "vitest";
+import { NextRequest, NextResponse } from "next/server";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   expectedWebOrigin,
   loginRateLimitIdentity,
+  parseSenderRegistration,
   readBoundedRequestBody,
-  RequestBodyTooLargeError
+  RequestBodyTooLargeError,
+  setSessionCookies
 } from "./server-api";
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe("web server API boundary", () => {
+  it("uses secure HTTP-only strict cookies in production", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const response = NextResponse.json({ ok: true });
+    setSessionCookies(response, {
+      accessToken: "access-token",
+      refreshToken: "refresh-token",
+      accessExpiresInSeconds: 900,
+      refreshExpiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+      user: { role: "SENDER" }
+    });
+    const cookies = response.headers.get("set-cookie")?.toLowerCase() || "";
+    expect(cookies).toContain("secure");
+    expect(cookies).toContain("httponly");
+    expect(cookies).toContain("samesite=strict");
+    expect(cookies).toContain("path=/api/backend");
+    expect(cookies).toContain("path=/api/auth");
+  });
+
+  it("accepts only the exact public sender registration shape", () => {
+    expect(
+      parseSenderRegistration(
+        JSON.stringify({
+          fullName: "  Sender One ",
+          email: " sender@example.com ",
+          password: "A-secure-password-123"
+        })
+      )
+    ).toEqual({
+      fullName: "Sender One",
+      email: "sender@example.com",
+      password: "A-secure-password-123"
+    });
+    expect(
+      parseSenderRegistration(
+        JSON.stringify({
+          fullName: "Sender One",
+          email: "sender@example.com",
+          password: "A-secure-password-123",
+          role: "ADMIN"
+        })
+      )
+    ).toBeNull();
+  });
+
   it("reads bodies through the configured byte boundary", async () => {
     const request = new Request("https://app.example.com/api/backend/transfers", {
       method: "POST",

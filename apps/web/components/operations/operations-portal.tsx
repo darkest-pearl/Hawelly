@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch, errorMessage } from "../../lib/api-client";
 import {
@@ -177,13 +178,13 @@ export function OperationsPortal({ role }: { role: OperationsRole }) {
   return (
     <main className={selected ? "operations-portal has-detail" : "operations-portal"}>
       <aside className={menuOpen ? "operations-sidebar is-open" : "operations-sidebar"}>
-        <a className="brand" href={role === "admin" ? "/admin" : "/staff"}>Hawelly</a>
+        <Link className="brand" href={role === "admin" ? "/admin" : "/staff"}>Hawelly</Link>
         <p className="sidebar-label">Operations</p>
         <nav aria-label={`${role} operations navigation`}>
           {navigation.primary.map((item, index) => (
-            <a aria-current={index === 0 ? "page" : undefined} href={item.href} key={item.label}>
+            <Link aria-current={index === 0 ? "page" : undefined} href={item.href} key={item.label}>
               <Icon name={item.icon} /><span>{item.label}</span>
-            </a>
+            </Link>
           ))}
         </nav>
         {navigation.administration.length ? (
@@ -191,7 +192,7 @@ export function OperationsPortal({ role }: { role: OperationsRole }) {
             <p className="sidebar-label">Administration</p>
             <nav aria-label="Administration navigation">
               {navigation.administration.map((item) => (
-                <a href={item.href} key={item.label}><Icon name={item.icon} /><span>{item.label}</span></a>
+                <Link href={item.href} key={item.label}><Icon name={item.icon} /><span>{item.label}</span></Link>
               ))}
             </nav>
           </div>
@@ -203,7 +204,7 @@ export function OperationsPortal({ role }: { role: OperationsRole }) {
 
       <section className="operations-workspace">
         <header className="operations-mobile-header">
-          <a className="brand" href={role === "admin" ? "/admin" : "/staff"}>Hawelly</a><span>Operations</span>
+          <Link className="brand" href={role === "admin" ? "/admin" : "/staff"}>Hawelly</Link><span>Operations</span>
           <button aria-expanded={menuOpen} aria-label="Toggle operations navigation" className="icon-button" onClick={() => setMenuOpen((value) => !value)} type="button"><Icon name="menu" /></button>
         </header>
         <div className="operations-topbar"><h1>Transfer operations</h1><label className="search-field"><span className="sr-only">Search reference or sender</span><Icon name="search" /><input onChange={(event) => setQuery(event.target.value)} placeholder="Search reference or sender" type="search" value={query} /></label></div>

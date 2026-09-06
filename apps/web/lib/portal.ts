@@ -9,7 +9,7 @@ export interface PortalNavigationItem {
 const senderNavigation = [
   { label: "Transfers", href: "/sender", icon: "transfers" },
   { label: "Recipients", href: "/sender/recipients", icon: "users" },
-  { label: "Support", href: "/sender#support", icon: "activity" }
+  { label: "Support", href: "/support", icon: "activity" }
 ] satisfies PortalNavigationItem[];
 
 const operationsNavigation = [
