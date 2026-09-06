@@ -1,80 +1,122 @@
-const workflow = [
-  "Quote requested",
-  "Quote ready",
-  "Funding",
-  "Payout",
-  "Complete"
-] as const;
+import Link from "next/link";
+import { publicLinks } from "../lib/public-entry";
 
-function EmptyTrayIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      className="empty-icon"
-      fill="none"
-      viewBox="0 0 48 48"
-    >
-      <path d="M9 28.5h10l2.5 4h5l2.5-4h10" />
-      <path d="m14 11-5 17.5V37h30v-8.5L34 11H14Z" />
-    </svg>
-  );
-}
+const workflow = [
+  {
+    number: "01",
+    title: "Tell us the route",
+    detail: "Choose a recipient, destination, amount, and payout method."
+  },
+  {
+    number: "02",
+    title: "Review the quote",
+    detail: "Staff prepare the rate, fees, delivery estimate, and expiry."
+  },
+  {
+    number: "03",
+    title: "Decide before funding",
+    detail: "Accept only when the quote works for you; then follow its instructions."
+  }
+] as const;
 
 export default function Home() {
   return (
-    <main>
+    <main className="public-site">
       <header className="site-header">
-        <a className="brand" href="#top" aria-label="Hawelly home">
+        <Link className="brand" href={publicLinks.brand} aria-label="Hawelly home">
           Hawelly
-        </a>
+        </Link>
         <nav aria-label="Primary navigation">
-          <a href="#recent-transfers">Transfers</a>
-          <a href="#recipients">Recipients</a>
-          <a href="#support">Support</a>
+          <Link href={publicLinks.transfers}>Transfers</Link>
+          <Link href={publicLinks.recipients}>Recipients</Link>
+          <Link href={publicLinks.support}>Support</Link>
         </nav>
-        <a className="sign-in" href="#sign-in">
-          Sign in
-        </a>
+        <div className="site-actions">
+          <Link className="sign-in" href={publicLinks.signIn}>Sender sign in</Link>
+          <Link className="header-create" href={publicLinks.createAccount}>Create account</Link>
+        </div>
       </header>
 
-      <div className="page-shell" id="top">
-        <section className="intro" aria-labelledby="page-title">
-          <h1 id="page-title">Move money with clarity.</h1>
-          <a className="primary-action" href="#recent-transfers">
-            Request a transfer
-          </a>
-        </section>
-
-        <section className="workflow" aria-labelledby="workflow-title">
-          <h2 id="workflow-title">Transfer workflow</h2>
-          <ol>
-            {workflow.map((step, index) => (
-              <li key={step}>
-                <span className="step-number" aria-hidden="true">
-                  {index + 1}
-                </span>
-                <span>{step}</span>
-              </li>
-            ))}
-          </ol>
-        </section>
-
-        <section
-          className="recent-transfers"
-          id="recent-transfers"
-          aria-labelledby="recent-title"
-        >
-          <h2 id="recent-title">Recent transfers</h2>
-          <div className="empty-state">
-            <EmptyTrayIcon />
-            <p>No transfers yet</p>
+      <section className="public-hero" aria-labelledby="page-title">
+        <div className="hero-copy">
+          <p className="eyebrow">Staff-guided cross-border transfers</p>
+          <h1 id="page-title">Know the route before money moves.</h1>
+          <p className="hero-lede">
+            Create a request, receive a clear quote from Hawelly staff, and decide
+            before funding. No anonymous transfer details are shown here.
+          </p>
+          <div className="hero-actions">
+            <Link className="primary-action" href={publicLinks.requestTransfer}>
+              Request a transfer <span aria-hidden="true">→</span>
+            </Link>
+            <Link className="secondary-action" href={publicLinks.createAccount}>
+              Create sender account
+            </Link>
           </div>
-        </section>
+          <p className="beta-note">
+            <span aria-hidden="true" /> Controlled beta · Availability depends on route and review
+          </p>
+        </div>
 
-        <span className="anchor-target" id="recipients" />
-        <span className="anchor-target" id="support" />
-        <span className="anchor-target" id="sign-in" />
-      </div>
+        <div className="route-board" aria-label="How a Hawelly transfer moves">
+          <div className="route-board-heading">
+            <span>Transfer route</span>
+            <strong>Review before funding</strong>
+          </div>
+          <ol>
+            <li>
+              <span className="route-marker">A</span>
+              <div><strong>Your request</strong><small>Recipient · amount · payout preference</small></div>
+            </li>
+            <li>
+              <span className="route-marker route-marker-review">H</span>
+              <div><strong>Hawelly review</strong><small>Rate · fees · timing · quote expiry</small></div>
+            </li>
+            <li>
+              <span className="route-marker">B</span>
+              <div><strong>Your decision</strong><small>Accept or decline before funding</small></div>
+            </li>
+          </ol>
+          <div className="route-guardrail">
+            <span aria-hidden="true">i</span>
+            A request is not a completed transfer and does not move money.
+          </div>
+        </div>
+      </section>
+
+      <section className="public-workflow" aria-labelledby="workflow-title">
+        <div className="section-intro">
+          <p className="eyebrow">A deliberate process</p>
+          <h2 id="workflow-title">Three clear decisions, in order.</h2>
+        </div>
+        <ol>
+          {workflow.map((step) => (
+            <li key={step.number}>
+              <span className="workflow-number">{step.number}</span>
+              <h3>{step.title}</h3>
+              <p>{step.detail}</p>
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      <section className="public-portals" aria-labelledby="portal-title">
+        <div>
+          <p className="eyebrow">Already working with Hawelly?</p>
+          <h2 id="portal-title">Go straight to your workspace.</h2>
+        </div>
+        <div className="portal-links">
+          <Link href={publicLinks.transfers}><strong>Sender</strong><span>Transfers and recipients</span><b aria-hidden="true">→</b></Link>
+          <Link href={publicLinks.staff}><strong>Staff</strong><span>Transfer operations</span><b aria-hidden="true">→</b></Link>
+          <Link href={publicLinks.admin}><strong>Admin</strong><span>Configuration and access</span><b aria-hidden="true">→</b></Link>
+        </div>
+      </section>
+
+      <footer className="public-footer">
+        <Link className="brand brand-inverse" href="/">Hawelly</Link>
+        <p>Cross-border transfer coordination with human review.</p>
+        <Link href={publicLinks.support}>Beta support and safety guidance</Link>
+      </footer>
     </main>
   );
 }

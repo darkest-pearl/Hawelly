@@ -9,8 +9,15 @@ export const REFRESH_COOKIE = "hawelly_refresh";
 export const LOGIN_CLIENT_COOKIE = "hawelly_login_client";
 export const UPSTREAM_TIMEOUT_MS = 10_000;
 export const MAX_REQUEST_BODY_BYTES = 1_048_576;
+export const MAX_AUTH_REQUEST_BODY_BYTES = 16_384;
 
 export class RequestBodyTooLargeError extends Error {}
+
+export interface SenderRegistrationInput {
+  fullName: string;
+  email: string;
+  password: string;
+}
 
 interface SessionPayload {
   accessToken: string;
@@ -109,7 +116,7 @@ export function setLoginClientCookie(response: NextResponse, clientId: string) {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "strict",
-    path: "/api/auth/login",
+    path: "/api/auth",
     maxAge: 2_592_000
   });
 }
@@ -147,6 +154,39 @@ export async function readBoundedRequestBody(
     offset += chunk.byteLength;
   }
   return new TextDecoder().decode(body);
+}
+
+export function parseSenderRegistration(body: string): SenderRegistrationInput | null {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(body);
+  } catch {
+    return null;
+  }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const candidate = payload as Record<string, unknown>;
+  const keys = Object.keys(candidate).sort();
+  if (keys.join(",") !== "email,fullName,password") return null;
+  if (
+    typeof candidate.fullName !== "string" ||
+    typeof candidate.email !== "string" ||
+    typeof candidate.password !== "string"
+  ) {
+    return null;
+  }
+  const fullName = candidate.fullName.trim();
+  const email = candidate.email.trim();
+  if (
+    fullName.length < 1 ||
+    fullName.length > 160 ||
+    email.length < 3 ||
+    email.length > 320 ||
+    candidate.password.length < 12 ||
+    candidate.password.length > 128
+  ) {
+    return null;
+  }
+  return { fullName, email, password: candidate.password };
 }
 
 export async function readJsonResponse(response: Response) {

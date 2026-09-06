@@ -14,7 +14,8 @@
   ],
   "overrides": {
     "deepmerge-ts": "8.0.2",
-    "lodash": "4.18.1"
+    "lodash": "4.18.1",
+    "mysql2": "3.24.3"
   },
   "scripts": {
     "postinstall": "npm run db:generate --workspace @hawelly/api",
@@ -33,6 +34,7 @@
     "security:client-boundary": "node scripts/securityCheck.mjs",
     "qa:web:capture": "node scripts/captureWeb.mjs",
     "qa:web:m2": "node scripts/captureMilestone2.mjs",
+    "qa:web:entry": "node scripts/qaWebEntry.mjs",
     "release:tools:test": "node --test scripts/release/releaseTools.test.mjs",
     "release:audit": "node scripts/release/releaseAudit.mjs",
     "release:health": "node scripts/release/healthCheck.mjs",

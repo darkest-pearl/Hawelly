@@ -103,6 +103,9 @@ npm run dev
 Local endpoints:
 
 - Web: `http://127.0.0.1:3000`
+- Sender sign in: `http://127.0.0.1:3000/sign-in`
+- Sender registration: `http://127.0.0.1:3000/register`
+- Controlled-beta support guidance: `http://127.0.0.1:3000/support`
 - API liveness: `http://127.0.0.1:4000/health`
 - API readiness: `http://127.0.0.1:4000/health/ready`
 - Sender registration: `POST http://127.0.0.1:4000/auth/register`
@@ -120,7 +123,9 @@ Copy each app's `.env.example` to a local ignored env file only when configurati
 
 Public registration creates sender accounts only. Staff and admin accounts must
 be provisioned through an explicitly authorized operational path; Hawelly does
-not expose public privileged-role registration.
+not expose public privileged-role registration. The web registration form calls
+the same-origin Next.js BFF, which forwards only `fullName`, `email`, and
+`password`, then stores the returned session in scoped HTTP-only cookies.
 
 The native sender-only Android client lives in `apps/android-client`. With JDK 21
 and Android SDK Platform 35 installed, its complete local gate is:
