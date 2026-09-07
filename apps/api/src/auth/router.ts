@@ -4,10 +4,11 @@ import type { ContextRequest } from "../middleware/requestContext.js";
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
 import { asyncHandler, contextFrom, noStore } from "../http/router.js";
 import { PublicAuthError, type AuthService } from "./service.js";
+import { personNameSchema } from "../validation/personName.js";
 
 const registrationSchema = z
   .object({
-    fullName: z.string().trim().min(1).max(160),
+    fullName: personNameSchema,
     email: z.email().max(320),
     password: z.string().min(12).max(128)
   })
@@ -22,6 +23,39 @@ const loginSchema = z
 
 const refreshSchema = z.object({ refreshToken: z.string().max(512) }).strict();
 const logoutSchema = z.object({ refreshToken: z.string().max(512).optional() }).strict();
+const profileNameSchema = z.object({ fullName: personNameSchema }).strict();
+const changePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1).max(128),
+    newPassword: z.string().min(12).max(128)
+  })
+  .strict();
+
+const safeValidationMessages: Readonly<Record<string, string>> = {
+  fullName: "Enter a name of 1–160 characters without control characters.",
+  phone: "Use international format beginning with +, followed by 8–15 digits.",
+  address: "Address must be 500 characters or fewer.",
+  accountName: "Enter the account holder name.",
+  bankName: "Enter the bank name.",
+  accountNumber: "Enter the account number.",
+  bankCode: "Check the bank code.",
+  provider: "Enter the mobile-money provider.",
+  city: "Enter the pickup city.",
+  instructions: "Enter the payout instructions.",
+  currentPassword: "Enter your current password.",
+  newPassword: "Use a new password of 12–128 characters."
+};
+
+function safeValidationFields(error: z.ZodError) {
+  const fields: Record<string, string> = {};
+  for (const issue of error.issues) {
+    const field = [...issue.path].reverse().find((part) => typeof part === "string");
+    if (typeof field === "string" && !fields[field]) {
+      fields[field] = safeValidationMessages[field] ?? "Check this field.";
+    }
+  }
+  return fields;
+}
 
 export function createAuthRouter(authService: AuthService) {
   const router = Router();
@@ -106,6 +140,42 @@ export function createMeHandler(authService: AuthService) {
   ] as const;
 }
 
+export function createUpdateMeHandler(authService: AuthService) {
+  return [
+    requireAuth(authService),
+    asyncHandler(async (request, response) => {
+      const authRequest = request as AuthRequest & ContextRequest;
+      if (!authRequest.auth) throw new Error("Auth principal is unavailable");
+      const { fullName } = profileNameSchema.parse(request.body);
+      const user = await authService.updateFullName(
+        authRequest.auth,
+        fullName,
+        contextFrom(authRequest)
+      );
+      noStore(response);
+      response.json({ user });
+    })
+  ] as const;
+}
+
+export function createChangePasswordHandler(authService: AuthService) {
+  return [
+    requireAuth(authService),
+    asyncHandler(async (request, response) => {
+      const authRequest = request as AuthRequest & ContextRequest;
+      if (!authRequest.auth) throw new Error("Auth principal is unavailable");
+      const input = changePasswordSchema.parse(request.body);
+      await authService.changePassword(
+        authRequest.auth,
+        input,
+        contextFrom(authRequest)
+      );
+      noStore(response);
+      response.status(204).send();
+    })
+  ] as const;
+}
+
 export function authErrorResponse(
   error: unknown,
   response: Response
@@ -123,7 +193,11 @@ export function authErrorResponse(
   if (error instanceof z.ZodError) {
     noStore(response);
     response.status(400).json({
-      error: { code: "INVALID_REQUEST", message: "Invalid request" }
+      error: {
+        code: "VALIDATION_FAILED",
+        message: "Check the highlighted fields",
+        fields: safeValidationFields(error)
+      }
     });
     return true;
   }

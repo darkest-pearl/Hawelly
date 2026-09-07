@@ -3,7 +3,13 @@ import express, {
   type ErrorRequestHandler,
   type RequestHandler
 } from "express";
-import { authErrorResponse, createAuthRouter, createMeHandler } from "./auth/router.js";
+import {
+  authErrorResponse,
+  createAuthRouter,
+  createChangePasswordHandler,
+  createMeHandler,
+  createUpdateMeHandler
+} from "./auth/router.js";
 import type { AuthService } from "./auth/service.js";
 import {
   resolveRuntimeConfig,
@@ -173,6 +179,11 @@ export function createApp(
   if (dependencies.authService) {
     app.use("/auth", createAuthRouter(dependencies.authService));
     app.get("/me", ...createMeHandler(dependencies.authService));
+    app.patch("/me", ...createUpdateMeHandler(dependencies.authService));
+    app.post(
+      "/me/change-password",
+      ...createChangePasswordHandler(dependencies.authService)
+    );
     if (dependencies.adminWorkflowService) {
       app.use("/admin", createAdminRouter(dependencies.authService, dependencies.adminWorkflowService));
     }
