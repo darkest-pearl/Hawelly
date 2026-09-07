@@ -813,6 +813,7 @@ textarea:focus-visible {
 .field-hint,
 .field-error { color: var(--muted); font-size: 12px; margin: 7px 0 0; }
 .field-error { color: var(--danger); font-weight: 600; }
+.field-help { color: var(--muted); font-size: 12px; font-weight: 400; margin-top: 7px; }
 .dialog-actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 24px; }
 .dialog-detail-list { display: grid; gap: 0; margin: 22px 0 0; }
 .dialog-detail-list div { border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; padding: 12px 0; }
