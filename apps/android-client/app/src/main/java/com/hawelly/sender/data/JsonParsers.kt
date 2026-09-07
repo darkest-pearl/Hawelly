@@ -82,6 +82,9 @@ internal fun parseTransfer(value: JSONObject): Transfer {
     )
 }
 
+internal fun parseTransferResponse(value: JSONObject) =
+    parseTransfer(value.getJSONObject("transfer"))
+
 internal fun parseQuote(value: JSONObject) = Quote(
     id = value.getString("id"),
     version = value.getInt("version"),

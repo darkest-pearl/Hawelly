@@ -1,5 +1,6 @@
 import { PayoutMethod } from "../generated/prisma/enums.js";
 import { z } from "zod";
+import { personNameSchema } from "../validation/personName.js";
 
 export const uuidSchema = z.uuid();
 export const countryCodeSchema = z
@@ -15,12 +16,20 @@ export const currencyCodeSchema = z
 
 const nullableTrimmed = (maximum: number) =>
   z.union([z.string().trim().min(1).max(maximum), z.null()]).optional();
+const optionalPhone = z.preprocess(
+  (value) => typeof value === "string" && value.trim() === "" ? undefined : value,
+  z.string().trim().regex(/^\+[1-9]\d{7,14}$/).optional()
+);
+const nullablePhone = z.preprocess(
+  (value) => typeof value === "string" && value.trim() === "" ? null : value,
+  z.union([z.string().trim().regex(/^\+[1-9]\d{7,14}$/), z.null()]).optional()
+);
 
 export const recipientCreateSchema = z
   .object({
-    fullName: z.string().trim().min(1).max(160),
+    fullName: personNameSchema,
     country: countryCodeSchema,
-    phone: z.string().trim().regex(/^\+[1-9]\d{7,14}$/).optional(),
+    phone: optionalPhone,
     payoutMethod: z.enum(PayoutMethod),
     payoutDetails: z.record(z.string(), z.unknown()),
     address: z.string().trim().min(1).max(500).optional()
@@ -29,9 +38,9 @@ export const recipientCreateSchema = z
 
 export const recipientPatchSchema = z
   .object({
-    fullName: z.string().trim().min(1).max(160).optional(),
+    fullName: personNameSchema.optional(),
     country: countryCodeSchema.optional(),
-    phone: nullableTrimmed(32),
+    phone: nullablePhone,
     payoutMethod: z.enum(PayoutMethod).optional(),
     payoutDetails: z.record(z.string(), z.unknown()).optional(),
     address: nullableTrimmed(500)
@@ -102,4 +111,3 @@ export const listQuerySchema = z
     limit: z.coerce.number().int().min(1).max(100).default(50)
   })
   .strict();
-

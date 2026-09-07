@@ -709,6 +709,178 @@ export class AuthService {
       session: { id: principal.sessionId }
     };
   }
+
+  async updateFullName(
+    principal: AuthPrincipal,
+    fullName: string,
+    context: RequestContext
+  ) {
+    if (principal.role !== Role.SENDER) {
+      throw new PublicAuthError(403, "FORBIDDEN", "Forbidden");
+    }
+    const user = await this.database.$transaction(async (transaction) => {
+      const updated = await transaction.user.updateMany({
+        where: { id: principal.userId, status: UserStatus.ACTIVE },
+        data: { fullName }
+      });
+      if (updated.count !== 1) throw AUTH_REQUIRED;
+      await writeActivity(transaction, {
+        actorUserId: principal.userId,
+        actorRole: principal.role,
+        source: context.source,
+        requestId: context.requestId,
+        actionType: "PROFILE_NAME_UPDATED",
+        outcome: ActivityOutcome.SUCCESS,
+        entityType: "User",
+        entityId: principal.userId,
+        ipHash: hashAuditIdentifier(context.ipAddress, this.config.rateLimitPepper),
+        metadata: { changedFields: ["fullName"] }
+      });
+      return transaction.user.findUniqueOrThrow({
+        where: { id: principal.userId },
+        select: { id: true, fullName: true, email: true, role: true, status: true }
+      });
+    });
+    return publicUser(user);
+  }
+
+  async changePassword(
+    principal: AuthPrincipal,
+    input: { currentPassword: string; newPassword: string },
+    context: RequestContext
+  ) {
+    const user = await this.database.user.findUnique({
+      where: { id: principal.userId },
+      select: {
+        id: true,
+        email: true,
+        passwordHash: true,
+        role: true,
+        status: true
+      }
+    });
+    if (!user || user.status !== UserStatus.ACTIVE) throw AUTH_REQUIRED;
+
+    const now = this.clock();
+    const keys = buildLoginRateLimitKeys(
+      context.rateLimitAddress || context.ipAddress,
+      user.email,
+      this.config
+    );
+    const keyValues = Object.values(keys);
+    const ipHash = hashAuditIdentifier(context.ipAddress, this.config.rateLimitPepper);
+    const admission = await this.database.$transaction(async (transaction) => {
+      await lockRateLimitKeys(transaction, keyValues);
+      const decision = await readRateLimit(transaction, keyValues, now);
+      if (decision.blocked) {
+        await writeActivity(transaction, {
+          actorUserId: user.id,
+          actorRole: user.role,
+          source: context.source,
+          requestId: context.requestId,
+          actionType: "AUTH_PASSWORD_CHANGE",
+          outcome: ActivityOutcome.DENIED,
+          entityType: "User",
+          entityId: user.id,
+          errorCode: "RATE_LIMITED",
+          ipHash,
+          metadata: { retryAfterSeconds: decision.retryAfterSeconds }
+        });
+      }
+      return decision;
+    });
+    if (admission.blocked) {
+      throw new PublicAuthError(
+        429,
+        "RATE_LIMITED",
+        "Too many authentication attempts. Try again later.",
+        admission.retryAfterSeconds
+      );
+    }
+
+    const currentPasswordMatches = await verifyPassword(
+      user.passwordHash,
+      input.currentPassword
+    );
+    if (!currentPasswordMatches) {
+      await this.database.$transaction(async (transaction) => {
+        await lockRateLimitKeys(transaction, keyValues);
+        await recordLoginFailure(transaction, keys, this.config, now);
+        await writeActivity(transaction, {
+          actorUserId: user.id,
+          actorRole: user.role,
+          source: context.source,
+          requestId: context.requestId,
+          actionType: "AUTH_PASSWORD_CHANGE",
+          outcome: ActivityOutcome.FAILURE,
+          entityType: "User",
+          entityId: user.id,
+          errorCode: "INVALID_CREDENTIALS",
+          ipHash,
+          metadata: {}
+        });
+      });
+      throw INVALID_CREDENTIALS;
+    }
+
+    const newPasswordHash = await hashPassword(input.newPassword);
+    const result = await this.database.$transaction(
+      async (transaction) => {
+        await lockRateLimitKeys(transaction, keyValues);
+        const updated = await transaction.user.updateMany({
+          where: {
+            id: user.id,
+            status: UserStatus.ACTIVE,
+            passwordHash: user.passwordHash
+          },
+          data: {
+            passwordHash: newPasswordHash,
+            passwordChangedAt: now,
+            sessionVersion: { increment: 1 }
+          }
+        });
+        if (updated.count !== 1) return { changed: false, revokedSessions: 0 };
+        const revoked = await transaction.authSession.updateMany({
+          where: { userId: user.id, revokedAt: null },
+          data: {
+            revokedAt: now,
+            revocationReason: SessionRevocationReason.LOGOUT_ALL
+          }
+        });
+        await clearLoginIdentifierRateLimits(transaction, keys);
+        await writeActivity(transaction, {
+          actorUserId: user.id,
+          actorRole: user.role,
+          source: context.source,
+          requestId: context.requestId,
+          actionType: "AUTH_PASSWORD_CHANGE",
+          outcome: ActivityOutcome.SUCCESS,
+          entityType: "User",
+          entityId: user.id,
+          ipHash,
+          metadata: { sessionsRevoked: revoked.count }
+        });
+        return { changed: true, revokedSessions: revoked.count };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+    );
+    if (!result.changed) {
+      await writeActivity(this.database, {
+        actorUserId: user.id,
+        actorRole: user.role,
+        source: context.source,
+        requestId: context.requestId,
+        actionType: "AUTH_PASSWORD_CHANGE",
+        outcome: ActivityOutcome.FAILURE,
+        entityType: "User",
+        entityId: user.id,
+        errorCode: "INVALID_CREDENTIALS",
+        ipHash,
+        metadata: {}
+      });
+      throw INVALID_CREDENTIALS;
+    }
+  }
 }
 
 export const authErrors = {

@@ -27,6 +27,7 @@ model User {
   capabilitiesRevoked          StaffCapabilityGrant[]   @relation("CapabilityRevokedBy")
   recipients                   Recipient[]              @relation("RecipientOwner")
   transfers                    TransferRequest[]        @relation("TransferSender")
+  transferCreationIdempotencies TransferCreationIdempotency[]
   quotesCreated                Quote[]                  @relation("QuoteCreatedBy")
   fundingTemplatesCreated      FundingInstructionTemplate[] @relation("FundingTemplateCreatedBy")
   fundingInstructionsPublished FundingInstruction[]     @relation("FundingInstructionPublishedBy")
@@ -158,12 +159,27 @@ model TransferRequest {
   staffNotes            StaffNote[]
   disputes              Dispute[]
   refundCase            RefundCase?
+  creationIdempotency   TransferCreationIdempotency?
 
   @@index([senderId, createdAt])
   @@index([status, quoteDueAt])
   @@index([recipientId])
   @@unique([id, senderId])
   @@unique([acceptedQuoteId, id])
+}
+
+model TransferCreationIdempotency {
+  senderId           String          @db.Uuid
+  idempotencyKey     String          @db.Uuid
+  requestFingerprint String          @db.Char(64)
+  transferRequestId  String          @unique @db.Uuid
+  createdAt          DateTime        @default(now()) @db.Timestamptz(3)
+  sender             User            @relation(fields: [senderId], references: [id], onDelete: Restrict)
+  transferRequest    TransferRequest @relation(fields: [transferRequestId, senderId], references: [id, senderId], onDelete: Restrict)
+
+  @@id([senderId, idempotencyKey])
+  @@unique([transferRequestId, senderId])
+  @@index([createdAt])
 }
 
 model Quote {

@@ -9,7 +9,12 @@ import java.net.URI
 import java.net.URL
 import java.util.UUID
 
-class ApiException(val status: Int, val code: String, override val message: String) : Exception(message)
+class ApiException(
+    val status: Int,
+    val code: String,
+    override val message: String,
+    val fieldErrors: Map<String, String> = emptyMap()
+) : Exception(message)
 
 class ApiClient(baseUrl: String) {
     private val origin = validatedOrigin(baseUrl)
@@ -18,9 +23,10 @@ class ApiClient(baseUrl: String) {
         method: String,
         path: String,
         accessToken: String? = null,
-        body: JSONObject? = null
+        body: JSONObject? = null,
+        idempotencyKey: String? = null
     ): JSONObject = withContext(Dispatchers.IO) {
-        val connection = open(path, method, accessToken)
+        val connection = open(path, method, accessToken, idempotencyKey)
         try {
             if (body != null) {
                 val bytes = body.toString().toByteArray(Charsets.UTF_8)
@@ -56,7 +62,12 @@ class ApiClient(baseUrl: String) {
         }
     }
 
-    private fun open(path: String, method: String, accessToken: String?): HttpURLConnection {
+    private fun open(
+        path: String,
+        method: String,
+        accessToken: String?,
+        idempotencyKey: String? = null
+    ): HttpURLConnection {
         require(path.startsWith("/")) { "API paths must be absolute" }
         val connection = URL(origin + path).openConnection() as HttpURLConnection
         connection.requestMethod = method
@@ -66,6 +77,7 @@ class ApiClient(baseUrl: String) {
         connection.setRequestProperty("X-Client-Source", "ANDROID")
         connection.setRequestProperty("X-Request-Id", UUID.randomUUID().toString())
         if (accessToken != null) connection.setRequestProperty("Authorization", "Bearer $accessToken")
+        if (idempotencyKey != null) connection.setRequestProperty("Idempotency-Key", idempotencyKey)
         return connection
     }
 
@@ -83,7 +95,8 @@ class ApiClient(baseUrl: String) {
             throw ApiException(
                 status,
                 error?.optString("code")?.takeIf(String::isNotBlank) ?: "HTTP_$status",
-                error?.optString("message")?.takeIf(String::isNotBlank) ?: "Request failed"
+                error?.optString("message")?.takeIf(String::isNotBlank) ?: "Request failed",
+                error?.optJSONObject("fields")?.stringMap().orEmpty()
             )
         }
         return if (text.isBlank()) JSONObject() else JSONObject(text)

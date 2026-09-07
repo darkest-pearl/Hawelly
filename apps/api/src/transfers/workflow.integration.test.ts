@@ -190,7 +190,7 @@ integrationDescribe("recipient and transfer workflow", () => {
       .send({ ...recipientInput, ...overrides });
   }
 
-  async function createTransfer(
+  function createTransfer(
     token: string,
     recipientId: string,
     overrides: Record<string, unknown> = {}
@@ -489,6 +489,136 @@ integrationDescribe("recipient and transfer workflow", () => {
       fullName: "Maria Updated",
       phone: null
     });
+  });
+
+  it("accepts inclusive recipient names, normalizes whitespace, and returns safe field errors", async () => {
+    await createUser("inclusive-recipient@example.com", Role.SENDER);
+    const token = await accessToken("inclusive-recipient@example.com");
+    const names = [
+      "Musab Mohammed Ibrahim",
+      "Amina M. Hassan",
+      "Jean-Claude O’Neill",
+      "Abdul Rahman Mohammed Ali",
+      "Madonna",
+      "مصعب محمد إبراهيم",
+      "ሙሳብ መሐመድ ኢብራሂም"
+    ];
+
+    for (const fullName of names) {
+      const response = await createRecipient(token, { fullName });
+      expect(response.status).toBe(201);
+      expect(response.body.recipient.fullName).toBe(fullName);
+    }
+
+    const spaced = await createRecipient(token, {
+      fullName: "  Musab   Mohammed   Ibrahim  "
+    });
+    expect(spaced.status).toBe(201);
+    expect(spaced.body.recipient.fullName).toBe("Musab Mohammed Ibrahim");
+
+    const controlCharacter = await createRecipient(token, {
+      fullName: "Musab\tIbrahim"
+    });
+    expect(controlCharacter.status).toBe(400);
+    expect(controlCharacter.body.error.fields.fullName).toBeTypeOf("string");
+
+    const blankPhone = await createRecipient(token, {
+      fullName: "Amina M. Hassan",
+      phone: "   "
+    });
+    expect(blankPhone.status).toBe(201);
+    expect(blankPhone.body.recipient.phone).toBeNull();
+
+    const beforeInvalid = await database.recipient.count();
+    const invalid = await createRecipient(token, {
+      fullName: "Valid Name",
+      phone: "050 123 4567"
+    });
+    expect(invalid.status).toBe(400);
+    expect(invalid.body.error).toMatchObject({
+      code: "VALIDATION_FAILED",
+      fields: {
+        phone: expect.any(String)
+      }
+    });
+    expect(await database.recipient.count()).toBe(beforeInvalid);
+
+    const missingBankFields = await createRecipient(token, {
+      fullName: "Valid Name",
+      payoutDetails: { accountName: "Valid Name" }
+    });
+    expect(missingBankFields.status).toBe(400);
+    expect(missingBankFields.body.error).toMatchObject({
+      code: "VALIDATION_FAILED",
+      fields: {
+        bankName: expect.any(String),
+        accountNumber: expect.any(String)
+      }
+    });
+    expect(await database.recipient.count()).toBe(beforeInvalid);
+  });
+
+  it("creates one transfer for idempotent retries and rejects changed payload reuse", async () => {
+    await createUser("idempotent-sender@example.com", Role.SENDER);
+    const token = await accessToken("idempotent-sender@example.com");
+    const recipient = await createRecipient(token);
+    const key = "77df4978-4f4d-45d7-98d1-cce43dc60416";
+
+    const first = await createTransfer(token, recipient.body.recipient.id)
+      .set("Idempotency-Key", key);
+    const replay = await createTransfer(token, recipient.body.recipient.id)
+      .set("Idempotency-Key", key);
+
+    expect(first.status).toBe(201);
+    expect(replay.status).toBe(200);
+    expect(replay.body.transfer.id).toBe(first.body.transfer.id);
+    expect(await database.transferRequest.count()).toBe(1);
+    expect(await database.activityEvent.count({
+      where: { actionType: "TRANSFER_REQUEST_CREATED" }
+    })).toBe(1);
+    const idempotency = await database.transferCreationIdempotency.findUniqueOrThrow({
+      where: {
+        senderId_idempotencyKey: {
+          senderId: (await database.user.findUniqueOrThrow({
+            where: { email: "idempotent-sender@example.com" },
+            select: { id: true }
+          })).id,
+          idempotencyKey: key
+        }
+      }
+    });
+    expect(idempotency.requestFingerprint).toMatch(/^[a-f0-9]{64}$/);
+    expect(JSON.stringify(idempotency)).not.toContain("Family support");
+
+    const changed = await createTransfer(token, recipient.body.recipient.id, {
+      sendAmountMinor: "125001"
+    }).set("Idempotency-Key", key);
+    expect(changed.status).toBe(409);
+    expect(changed.body.error.code).toBe("IDEMPOTENCY_KEY_REUSED");
+
+    const invalidKey = await createTransfer(token, recipient.body.recipient.id)
+      .set("Idempotency-Key", "not-a-uuid");
+    expect(invalidKey.status).toBe(400);
+    expect(invalidKey.body.error.code).toBe("INVALID_IDEMPOTENCY_KEY");
+  });
+
+  it("serializes concurrent transfer requests sharing an idempotency key", async () => {
+    await createUser("concurrent-idempotency@example.com", Role.SENDER);
+    const token = await accessToken("concurrent-idempotency@example.com");
+    const recipient = await createRecipient(token);
+    const key = "0e2d31b5-fda7-488e-ae37-14572404d676";
+
+    const responses = await Promise.all([
+      createTransfer(token, recipient.body.recipient.id).set("Idempotency-Key", key),
+      createTransfer(token, recipient.body.recipient.id).set("Idempotency-Key", key)
+    ]);
+
+    expect(responses.map(({ status }) => status).sort()).toEqual([200, 201]);
+    expect(new Set(responses.map(({ body }) => body.transfer.id)).size).toBe(1);
+    expect(await database.transferRequest.count()).toBe(1);
+    expect(await database.activityEvent.count({
+      where: { actionType: "TRANSFER_REQUEST_CREATED" }
+    })).toBe(1);
   });
 
   it("exposes only the effective sender corridor options to authenticated senders", async () => {

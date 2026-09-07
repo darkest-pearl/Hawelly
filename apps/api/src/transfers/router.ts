@@ -136,13 +136,26 @@ export function createTransfersRouter(
     "/",
     asyncHandler(async (request, response) => {
       const input = createTransferSchema.parse(request.body);
-      const transfer = await workflow.createTransfer(
+      const rawIdempotencyKey = request.header("Idempotency-Key");
+      const parsedIdempotencyKey = rawIdempotencyKey
+        ? uuidSchema.safeParse(rawIdempotencyKey.trim())
+        : null;
+      if (parsedIdempotencyKey && !parsedIdempotencyKey.success) {
+        throw new PublicApiError(
+          400,
+          "INVALID_IDEMPOTENCY_KEY",
+          "Idempotency-Key must be a valid UUID"
+        );
+      }
+      const result = await workflow.createTransfer(
         principalFrom(request),
         input,
-        contextFrom(request)
+        contextFrom(request),
+        parsedIdempotencyKey?.data
       );
       noStore(response);
-      response.status(201).json({ transfer });
+      if (result.replayed) response.set("Idempotency-Replayed", "true");
+      response.status(result.replayed ? 200 : 201).json({ transfer: result.transfer });
     })
   );
 

@@ -162,6 +162,67 @@ integrationDescribe("database-backed authentication", () => {
     );
   });
 
+  it("updates an inclusive full name and audits without storing the name", async () => {
+    await createUser("profile-name@example.com", Role.SENDER);
+    const session = await login("profile-name@example.com");
+    const response = await request(app)
+      .patch("/me")
+      .set("Authorization", `Bearer ${session.body.accessToken}`)
+      .send({ fullName: "  Musab   Mohammed Ibrahim  " });
+
+    expect(response.status).toBe(200);
+    expect(response.body.user.fullName).toBe("Musab Mohammed Ibrahim");
+    const event = await database.activityEvent.findFirstOrThrow({
+      where: { actionType: "PROFILE_NAME_UPDATED" }
+    });
+    expect(JSON.stringify(event)).not.toContain("Musab Mohammed Ibrahim");
+  });
+
+  it("changes a password, revokes every session, and audits without credentials", async () => {
+    const { user } = await createUser("password-change@example.com", Role.SENDER);
+    const first = await login("password-change@example.com");
+    const second = await login("password-change@example.com");
+    const newPassword = "A-New-Secure-Password-456";
+    now = new Date(now.getTime() + 5_000);
+
+    const wrong = await request(app)
+      .post("/me/change-password")
+      .set("Authorization", `Bearer ${first.body.accessToken}`)
+      .send({ currentPassword: "WrongPassword123", newPassword });
+    expect(wrong.status).toBe(401);
+    expect(wrong.body.error.code).toBe("INVALID_CREDENTIALS");
+
+    const changed = await request(app)
+      .post("/me/change-password")
+      .set("Authorization", `Bearer ${first.body.accessToken}`)
+      .send({ currentPassword: "CorrectHorse123", newPassword });
+    expect(changed.status).toBe(204);
+
+    const stored = await database.user.findUniqueOrThrow({ where: { id: user.id } });
+    expect(stored.passwordChangedAt.getTime()).toBe(now.getTime());
+    expect(stored.sessionVersion).toBe(1);
+    expect(await database.authSession.count({
+      where: { userId: user.id, revokedAt: null }
+    })).toBe(0);
+    expect((await request(app)
+      .get("/me")
+      .set("Authorization", `Bearer ${first.body.accessToken}`)).status).toBe(401);
+    expect((await request(app)
+      .post("/auth/refresh")
+      .send({ refreshToken: second.body.refreshToken })).status).toBe(401);
+    expect((await login("password-change@example.com", "CorrectHorse123")).status).toBe(401);
+    expect((await login("password-change@example.com", newPassword)).status).toBe(200);
+
+    const serialized = JSON.stringify(await database.activityEvent.findMany({
+      where: { actionType: "AUTH_PASSWORD_CHANGE" }
+    }));
+    expect(serialized).not.toContain("WrongPassword123");
+    expect(serialized).not.toContain("CorrectHorse123");
+    expect(serialized).not.toContain(newPassword);
+    expect(serialized).not.toContain(stored.passwordHash);
+    expect(second.body.refreshToken).toBeTypeOf("string");
+  });
+
   it("limits public registration before additional Argon2 work", async () => {
     const password = "A-secure-sender-password-123";
     const statuses: number[] = [];

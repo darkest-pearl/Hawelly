@@ -13,10 +13,20 @@ export class ClientApiError extends Error {
   constructor(
     public readonly status: number,
     public readonly code: string,
-    message: string
+    message: string,
+    public readonly fields: Readonly<Record<string, string>> = {}
   ) {
     super(message);
   }
+}
+
+function safeFieldErrors(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter((entry): entry is [string, string] => typeof entry[1] === "string")
+      .slice(0, 32)
+  );
 }
 
 let refreshPromise: Promise<boolean> | null = null;
@@ -38,12 +48,13 @@ async function parseResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const error =
       payload && typeof payload === "object" && "error" in payload
-        ? (payload.error as { code?: unknown; message?: unknown })
+        ? (payload.error as { code?: unknown; message?: unknown; fields?: unknown })
         : null;
     throw new ClientApiError(
       response.status,
       typeof error?.code === "string" ? error.code : "REQUEST_FAILED",
-      typeof error?.message === "string" ? error.message : "Request could not be completed"
+      typeof error?.message === "string" ? error.message : "Request could not be completed",
+      safeFieldErrors(error?.fields)
     );
   }
   return payload as T;
@@ -70,3 +81,6 @@ export function errorMessage(error: unknown) {
     : "Something went wrong. Please try again.";
 }
 
+export function errorFields(error: unknown) {
+  return error instanceof ClientApiError ? error.fields : {};
+}

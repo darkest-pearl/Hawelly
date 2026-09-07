@@ -14,8 +14,8 @@ android {
         applicationId = "com.hawelly.sender"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.0.1-beta"
+        versionCode = 3
+        versionName = "1.0.2-beta"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -23,10 +23,12 @@ android {
     buildTypes {
         debug {
             buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:4000\"")
+            buildConfigField("String", "WEB_BASE_URL", "\"http://10.0.2.2:3000\"")
         }
         release {
             isMinifyEnabled = false
             buildConfigField("String", "API_BASE_URL", "\"${productionApiBaseUrl.get()}\"")
+            buildConfigField("String", "WEB_BASE_URL", "\"${productionApiBaseUrl.get()}\"")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -59,6 +61,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.6")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-savedstate:2.8.6")
     implementation("androidx.compose.ui:ui-android:1.7.0")
     implementation("androidx.compose.ui:ui-tooling-preview-android:1.7.0")
     implementation("androidx.compose.foundation:foundation-android:1.7.0")
@@ -68,6 +71,8 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling-android:1.7.0")
     debugImplementation("androidx.compose.ui:ui-test-manifest:1.7.0")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4-android:1.7.0")
 }

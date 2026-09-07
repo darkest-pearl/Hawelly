@@ -1,8 +1,11 @@
 package com.hawelly.sender.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -67,6 +70,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.hawelly.sender.R
+import com.hawelly.sender.BuildConfig
 import com.hawelly.sender.data.AttachmentUpload
 import com.hawelly.sender.data.PayoutMethod
 import com.hawelly.sender.data.Recipient
@@ -89,7 +93,13 @@ fun HawellyApp(viewModel: HawellyViewModel) {
         val state by viewModel.state
         when {
             state.restoring -> LoadingScreen()
-            state.user == null -> AuthScreen(state.busy, state.error, viewModel::login, viewModel::register)
+            state.user == null -> AuthScreen(
+                state.busy,
+                state.message,
+                state.error,
+                viewModel::login,
+                viewModel::register
+            )
             else -> SenderShell(state, viewModel)
         }
     }
@@ -111,6 +121,7 @@ private fun LoadingScreen() {
 @Composable
 private fun AuthScreen(
     busy: Boolean,
+    message: String?,
     error: String?,
     login: (String, String) -> Unit,
     register: (String, String, String) -> Unit
@@ -161,6 +172,7 @@ private fun AuthScreen(
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation()
             )
+            message?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
             (validation ?: error)?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             Button(
                 onClick = {
@@ -222,6 +234,7 @@ private fun SenderShell(state: HawellyUiState, viewModel: HawellyViewModel) {
         AppScreen.DASHBOARD -> "Transfers"
         AppScreen.RECIPIENTS -> "Recipients"
         AppScreen.NEW_TRANSFER -> "New transfer"
+        AppScreen.TRANSFER_CONFIRMATION -> "Request submitted"
         AppScreen.TRANSFER_DETAIL -> state.selected?.transfer?.reference ?: "Transfer"
         AppScreen.PROFILE -> "Profile & security"
     }
@@ -230,7 +243,11 @@ private fun SenderShell(state: HawellyUiState, viewModel: HawellyViewModel) {
             TopAppBar(
                 title = { Text(title, fontWeight = FontWeight.SemiBold) },
                 navigationIcon = {
-                    if (state.screen == AppScreen.TRANSFER_DETAIL || state.screen == AppScreen.NEW_TRANSFER) {
+                    if (
+                        state.screen == AppScreen.TRANSFER_DETAIL ||
+                        state.screen == AppScreen.NEW_TRANSFER ||
+                        state.screen == AppScreen.TRANSFER_CONFIRMATION
+                    ) {
                         TextButton(onClick = { viewModel.navigate(AppScreen.DASHBOARD) }) { Text("Back") }
                     }
                 },
@@ -262,8 +279,9 @@ private fun SenderShell(state: HawellyUiState, viewModel: HawellyViewModel) {
                 AppScreen.DASHBOARD -> DashboardScreen(state, viewModel)
                 AppScreen.RECIPIENTS -> RecipientsScreen(state, viewModel)
                 AppScreen.NEW_TRANSFER -> NewTransferScreen(state, viewModel)
+                AppScreen.TRANSFER_CONFIRMATION -> TransferConfirmationScreen(state, viewModel)
                 AppScreen.TRANSFER_DETAIL -> TransferDetailScreen(state, viewModel)
-                AppScreen.PROFILE -> ProfileScreen(state, viewModel)
+                AppScreen.PROFILE -> ProfileScreenV3(state, viewModel)
             }
             if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
         }
@@ -322,7 +340,16 @@ private fun RecipientsScreen(state: HawellyUiState, viewModel: HawellyViewModel)
     var editingId by rememberSaveable { mutableStateOf<String?>(null) }
     var deleting by remember { mutableStateOf<Recipient?>(null) }
     var editorOpen by rememberSaveable { mutableStateOf(false) }
+    var observedSaveSequence by rememberSaveable {
+        mutableStateOf(state.recipientSaveSequence)
+    }
     val editing = state.recipients.firstOrNull { it.id == editingId }
+    LaunchedEffect(state.recipientSaveSequence) {
+        if (state.recipientSaveSequence > observedSaveSequence) {
+            observedSaveSequence = state.recipientSaveSequence
+            editorOpen = false
+        }
+    }
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp),
@@ -370,10 +397,10 @@ private fun RecipientsScreen(state: HawellyUiState, viewModel: HawellyViewModel)
             existing = editing,
             options = state.transferOptions,
             busy = state.busy,
+            serverErrors = state.fieldErrors,
             close = { editorOpen = false },
             save = { id, name, country, phone, method, details, address ->
                 viewModel.saveRecipient(id, name, country, phone, method, details, address)
-                editorOpen = false
             }
         )
     }
@@ -401,19 +428,21 @@ private fun RecipientEditor(
     existing: Recipient?,
     options: SenderTransferOptions?,
     busy: Boolean,
+    serverErrors: Map<String, String>,
     close: () -> Unit,
     save: (String?, String, String, String?, PayoutMethod, Map<String, String>, String?) -> Unit
 ) {
     val destinations = remember(options) { options?.recipientDestinations().orEmpty() }
-    var name by remember(existing) { mutableStateOf(existing?.fullName.orEmpty()) }
+    var name by rememberSaveable(existing?.id) { mutableStateOf(existing?.fullName.orEmpty()) }
     var country by rememberSaveable(existing?.id) { mutableStateOf(existing?.country.orEmpty()) }
-    var countryExpanded by rememberSaveable { mutableStateOf(false) }
-    var phone by remember(existing) { mutableStateOf(existing?.phone.orEmpty()) }
-    var address by remember(existing) { mutableStateOf(existing?.address.orEmpty()) }
+    var countryExpanded by remember { mutableStateOf(false) }
+    var phone by rememberSaveable(existing?.id) { mutableStateOf(existing?.phone.orEmpty()) }
+    var address by rememberSaveable(existing?.id) { mutableStateOf(existing?.address.orEmpty()) }
     var method by rememberSaveable(existing?.id) { mutableStateOf(existing?.payoutMethod ?: PayoutMethod.BANK_TRANSFER) }
-    var detailOne by remember(existing) { mutableStateOf(existing?.let(::firstPayoutDetail).orEmpty()) }
-    var detailTwo by remember(existing) { mutableStateOf(existing?.let(::secondPayoutDetail).orEmpty()) }
-    var detailThree by remember(existing) { mutableStateOf(existing?.payoutDetails?.get("accountNumber").orEmpty()) }
+    var detailOne by rememberSaveable(existing?.id) { mutableStateOf(existing?.let(::firstPayoutDetail).orEmpty()) }
+    var detailTwo by rememberSaveable(existing?.id) { mutableStateOf(existing?.let(::secondPayoutDetail).orEmpty()) }
+    var detailThree by rememberSaveable(existing?.id) { mutableStateOf(existing?.payoutDetails?.get("accountNumber").orEmpty()) }
+    var localErrors by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     val destination = destinations.firstOrNull { it.country == country }
     val supportedMethods = destination?.payoutMethods.orEmpty()
     val methodOptions = supportedMethods.ifEmpty {
@@ -430,18 +459,37 @@ private fun RecipientEditor(
             country = ""
         }
     }
-    val labels = when (method) {
-        PayoutMethod.BANK_TRANSFER -> listOf("Account name", "Bank name", "Account number")
-        PayoutMethod.CASH_PICKUP -> listOf("Pickup city")
-        PayoutMethod.MOBILE_MONEY -> listOf("Provider", "Account number")
-        PayoutMethod.OTHER -> listOf("Instructions")
+    val detailFields = when (method) {
+        PayoutMethod.BANK_TRANSFER -> listOf(
+            "accountName" to "Account name",
+            "bankName" to "Bank name",
+            "accountNumber" to "Account number"
+        )
+        PayoutMethod.CASH_PICKUP -> listOf("city" to "Pickup city")
+        PayoutMethod.MOBILE_MONEY -> listOf(
+            "provider" to "Provider",
+            "accountNumber" to "Account number"
+        )
+        PayoutMethod.OTHER -> listOf("instructions" to "Instructions")
     }
+    fun errorFor(field: String) = localErrors[field] ?: serverErrors[field]
     AlertDialog(
         onDismissRequest = close,
         title = { Text(if (existing == null) "Add recipient" else "Edit recipient") },
         text = {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                item { OutlinedTextField(name, { name = it }, label = { Text("Full name") }, modifier = Modifier.fillMaxWidth()) }
+                item {
+                    val error = errorFor("fullName")
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it; localErrors = localErrors - "fullName" },
+                        label = { Text("Full name") },
+                        supportingText = error?.let { { Text(it) } },
+                        isError = error != null,
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
                 item {
                     ExposedDropdownMenuBox(
                         expanded = countryExpanded,
@@ -489,35 +537,103 @@ private fun RecipientEditor(
                         )
                     }
                 }
-                item { OutlinedTextField(phone, { phone = it }, label = { Text("Phone (optional)") }, modifier = Modifier.fillMaxWidth()) }
+                item {
+                    val error = errorFor("phone")
+                    OutlinedTextField(
+                        value = phone,
+                        onValueChange = { phone = it; localErrors = localErrors - "phone" },
+                        label = { Text("Phone (optional)") },
+                        placeholder = { Text("International format, e.g. +971501234567") },
+                        supportingText = {
+                            Text(error ?: "Include + and the country code when provided.")
+                        },
+                        isError = error != null,
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
                 item {
                     Text("Payout method", fontWeight = FontWeight.SemiBold)
                     methodOptions.forEach { option ->
-                        Row(Modifier.fillMaxWidth().clickable { method = option }.padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                            RadioButton(method == option, { method = option })
+                        Row(Modifier.fillMaxWidth().clickable {
+                            method = option
+                            localErrors = emptyMap()
+                        }.padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(method == option, {
+                                method = option
+                                localErrors = emptyMap()
+                            })
                             Text(words(option.name))
                         }
                     }
                 }
-                item { OutlinedTextField(detailOne, { detailOne = it }, label = { Text(labels[0]) }, modifier = Modifier.fillMaxWidth()) }
-                if (labels.size > 1) item { OutlinedTextField(detailTwo, { detailTwo = it }, label = { Text(labels[1]) }, modifier = Modifier.fillMaxWidth()) }
-                if (labels.size > 2) item { OutlinedTextField(detailThree, { detailThree = it }, label = { Text(labels[2]) }, modifier = Modifier.fillMaxWidth()) }
-                item { OutlinedTextField(address, { address = it }, label = { Text("Address (optional)") }, modifier = Modifier.fillMaxWidth()) }
+                detailFields.forEachIndexed { index, (key, label) ->
+                    item {
+                        val current = when (index) {
+                            0 -> detailOne
+                            1 -> detailTwo
+                            else -> detailThree
+                        }
+                        val error = errorFor(key)
+                        OutlinedTextField(
+                            value = current,
+                            onValueChange = {
+                                when (index) {
+                                    0 -> detailOne = it
+                                    1 -> detailTwo = it
+                                    else -> detailThree = it
+                                }
+                                localErrors = localErrors - key
+                            },
+                            label = { Text(label) },
+                            supportingText = error?.let { { Text(it) } },
+                            isError = error != null,
+                            singleLine = method != PayoutMethod.OTHER,
+                            minLines = if (method == PayoutMethod.OTHER) 2 else 1,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+                item {
+                    val error = errorFor("address")
+                    OutlinedTextField(
+                        value = address,
+                        onValueChange = { address = it; localErrors = localErrors - "address" },
+                        label = { Text("Address (optional)") },
+                        supportingText = error?.let { { Text(it) } },
+                        isError = error != null,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
             }
         },
         confirmButton = {
             Button(
-                enabled = !busy && routeAvailable && name.isNotBlank() && detailOne.isNotBlank(),
+                enabled = !busy && routeAvailable,
                 onClick = {
-                    val details = when (method) {
-                        PayoutMethod.BANK_TRANSFER -> mapOf("accountName" to detailOne, "bankName" to detailTwo, "accountNumber" to detailThree)
-                        PayoutMethod.CASH_PICKUP -> mapOf("city" to detailOne)
-                        PayoutMethod.MOBILE_MONEY -> mapOf("provider" to detailOne, "accountNumber" to detailTwo)
-                        PayoutMethod.OTHER -> mapOf("instructions" to detailOne)
+                    val result = validateRecipientInput(
+                        name,
+                        phone,
+                        address,
+                        method,
+                        detailOne,
+                        detailTwo,
+                        detailThree
+                    )
+                    localErrors = result.errors
+                    result.value?.let { value ->
+                        save(
+                            existing?.id,
+                            value.fullName,
+                            country,
+                            value.phone,
+                            method,
+                            value.payoutDetails,
+                            value.address
+                        )
                     }
-                    save(existing?.id, name, country, phone, method, details, address)
                 }
-            ) { Text("Save") }
+            ) { Text(if (busy) "Saving…" else "Save") }
         },
         dismissButton = { TextButton(onClick = close) { Text("Cancel") } }
     )
@@ -525,11 +641,11 @@ private fun RecipientEditor(
 
 @Composable
 private fun NewTransferScreen(state: HawellyUiState, viewModel: HawellyViewModel) {
-    var selectedId by remember { mutableStateOf(state.recipients.firstOrNull()?.id) }
-    var origin by remember { mutableStateOf("") }
-    var amount by remember { mutableStateOf("") }
-    var currency by remember { mutableStateOf("") }
-    var note by remember { mutableStateOf("") }
+    var selectedId by rememberSaveable { mutableStateOf(state.recipients.firstOrNull()?.id) }
+    var origin by rememberSaveable { mutableStateOf("") }
+    var amount by rememberSaveable { mutableStateOf("") }
+    var currency by rememberSaveable { mutableStateOf("") }
+    var note by rememberSaveable { mutableStateOf("") }
     val recipient = state.recipients.firstOrNull { it.id == selectedId }
     val corridors = state.transferOptions?.corridors.orEmpty().filter { corridor ->
         recipient != null && corridor.destinationCountry == recipient.country &&
@@ -540,6 +656,11 @@ private fun NewTransferScreen(state: HawellyUiState, viewModel: HawellyViewModel
         .flatMap { it.sendCurrencies }
         .distinct()
     val receiveCurrencies = corridors.flatMap { it.receiveCurrencies }.distinct()
+    LaunchedEffect(state.recipients) {
+        if (state.recipients.none { it.id == selectedId }) {
+            selectedId = state.recipients.firstOrNull()?.id
+        }
+    }
     LaunchedEffect(recipient?.id, state.transferOptions) {
         val firstRoute = corridors.firstOrNull()
         origin = firstRoute?.originCountry.orEmpty()
@@ -607,8 +728,87 @@ private fun NewTransferScreen(state: HawellyUiState, viewModel: HawellyViewModel
                     onClick = { if (recipient != null && minor != null) viewModel.createTransfer(recipient, origin, minor, currency, note) },
                     enabled = !state.busy && recipient != null && origin in origins && currency in currencies && minor != null,
                     modifier = Modifier.fillMaxWidth()
-                ) { Text("Submit request") }
+                ) {
+                    if (state.busy) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.width(18.dp).height(18.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("Submitting…")
+                    } else {
+                        Text("Submit request")
+                    }
+                }
             }
+        }
+    }
+}
+
+@Composable
+private fun TransferConfirmationScreen(state: HawellyUiState, viewModel: HawellyViewModel) {
+    val transfer = state.confirmedTransfer
+    if (transfer == null) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("The confirmed transfer request is unavailable.")
+        }
+        return
+    }
+    LazyColumn(
+        Modifier.fillMaxSize(),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item {
+            Text(
+                "Transfer request submitted",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                "Hawelly staff will review your request and prepare a quote.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        item {
+            SectionCard("Request confirmation") {
+                Text("Reference", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    transfer.reference,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                Text("Current status", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                StatusText(transfer.status)
+            }
+        }
+        state.hydrationWarning?.let { warning ->
+            item {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(
+                        Modifier.padding(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(warning, color = MaterialTheme.colorScheme.error)
+                        OutlinedButton(
+                            enabled = !state.busy,
+                            onClick = viewModel::retryConfirmedTransferHydration
+                        ) { Text("Refresh request") }
+                    }
+                }
+            }
+        }
+        item {
+            Button(
+                enabled = !state.busy,
+                onClick = viewModel::viewConfirmedTransfer,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("View request") }
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = viewModel::finishTransferConfirmation,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Done") }
         }
     }
 }
@@ -789,17 +989,61 @@ private fun TimelineSection(bundle: TransferBundle) {
 }
 
 @Composable
-private fun ProfileScreen(state: HawellyUiState, viewModel: HawellyViewModel) {
+private fun ProfileScreenV3(state: HawellyUiState, viewModel: HawellyViewModel) {
     val context = LocalContext.current
+    var editNameOpen by rememberSaveable { mutableStateOf(false) }
+    var passwordOpen by rememberSaveable { mutableStateOf(false) }
+    var observedNameSaveSequence by rememberSaveable {
+        mutableStateOf(state.profileNameSaveSequence)
+    }
+    LaunchedEffect(state.profileNameSaveSequence) {
+        if (state.profileNameSaveSequence > observedNameSaveSequence) {
+            observedNameSaveSequence = state.profileNameSaveSequence
+            editNameOpen = false
+        }
+    }
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
-            Text(state.user?.fullName.orEmpty(), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            Text(state.user?.email.orEmpty(), color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("Sender account · ${words(state.user?.status.orEmpty())}")
+            Text("Profile & security", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            Text(
+                "Manage the account details and security controls available in this beta.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        item {
+            SectionCard("Personal information") {
+                Text("Full name", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(state.user?.fullName.orEmpty(), fontWeight = FontWeight.SemiBold)
+                Text("Email", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(state.user?.email.orEmpty())
+                Text("Account type", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(words(state.user?.role.orEmpty()))
+                Text("Account status", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                StatusText(state.user?.status.orEmpty())
+                OutlinedButton(
+                    enabled = !state.busy,
+                    onClick = { editNameOpen = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Edit full name") }
+                Text(
+                    "Email, phone, and other identity-sensitive changes are handled through the verified support process during beta.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        item {
+            SectionCard("Password security") {
+                Text("Changing your password signs you out on every device.")
+                Button(
+                    enabled = !state.busy,
+                    onClick = { passwordOpen = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Change password") }
+            }
         }
         item {
             SectionCard("App updates") {
@@ -808,12 +1052,18 @@ private fun ProfileScreen(state: HawellyUiState, viewModel: HawellyViewModel) {
                     update == null -> Text("Checking for updates…")
                     update.updateAvailable -> {
                         Text("Version ${update.latestVersionName} is available", fontWeight = FontWeight.Bold)
-                        if (update.updateRequired) Text("This update is required to continue safely.", color = MaterialTheme.colorScheme.error)
+                        if (update.updateRequired) {
+                            Text("This update is required to continue safely.", color = MaterialTheme.colorScheme.error)
+                        }
                         update.releaseNotes?.let { Text(it) }
-                        update.sha256?.let { Text("SHA-256 ${it.take(12)}…", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                        if (update.downloadUrl != null) Button(onClick = {
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(update.downloadUrl)))
-                        }) { Text("Open secure download") }
+                        update.sha256?.let {
+                            Text("SHA-256 ${it.take(12)}…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        if (update.downloadUrl != null) {
+                            Button(onClick = {
+                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(update.downloadUrl)))
+                            }) { Text("Open secure download") }
+                        }
                     }
                     else -> Text("Hawelly is up to date (version ${update.latestVersionName}).")
                 }
@@ -821,13 +1071,196 @@ private fun ProfileScreen(state: HawellyUiState, viewModel: HawellyViewModel) {
             }
         }
         item {
+            SectionCard("App information") {
+                Text("Version ${BuildConfig.VERSION_NAME}")
+                Text("Build ${BuildConfig.VERSION_CODE}")
+                Text(BuildConfig.APPLICATION_ID, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                OutlinedButton(
+                    onClick = {
+                        val diagnostics = diagnosticInformation(
+                            versionName = BuildConfig.VERSION_NAME,
+                            versionCode = BuildConfig.VERSION_CODE,
+                            applicationId = BuildConfig.APPLICATION_ID,
+                            androidVersion = Build.VERSION.RELEASE,
+                            deviceModel = "${Build.MANUFACTURER} ${Build.MODEL}".trim(),
+                            apiHostname = Uri.parse(BuildConfig.API_BASE_URL).host.orEmpty()
+                        )
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE)
+                            as ClipboardManager
+                        clipboard.setPrimaryClip(
+                            ClipData.newPlainText("Hawelly diagnostic information", diagnostics)
+                        )
+                        viewModel.notify("Diagnostic information copied")
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Copy diagnostic information") }
+            }
+        }
+        item {
+            SectionCard("Help & safety") {
+                Text("Hawelly staff never need your password.")
+                Text(
+                    "Send identity or funding evidence only through the protected transfer flow when Hawelly requests it."
+                )
+                OutlinedButton(
+                    onClick = {
+                        context.startActivity(
+                            Intent(Intent.ACTION_VIEW, Uri.parse(supportUrl(BuildConfig.WEB_BASE_URL)))
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Help & support") }
+            }
+        }
+        item {
             SectionCard("Session security") {
                 Text("Your rotating refresh token is encrypted with Android Keystore and never written to logs.")
-                OutlinedButton(onClick = { viewModel.logout(false) }, modifier = Modifier.fillMaxWidth()) { Text("Sign out on this device") }
-                TextButton(onClick = { viewModel.logout(true) }, modifier = Modifier.fillMaxWidth()) { Text("Sign out on all devices", color = MaterialTheme.colorScheme.error) }
+                OutlinedButton(
+                    onClick = { viewModel.logout(false) },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Sign out on this device") }
+                TextButton(
+                    onClick = { viewModel.logout(true) },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Sign out on all devices", color = MaterialTheme.colorScheme.error) }
             }
         }
     }
+    if (editNameOpen) {
+        EditFullNameDialog(
+            currentName = state.user?.fullName.orEmpty(),
+            busy = state.busy,
+            serverError = state.fieldErrors["fullName"],
+            dismiss = { if (!state.busy) editNameOpen = false },
+            save = viewModel::updateFullName
+        )
+    }
+    if (passwordOpen) {
+        ChangePasswordDialog(
+            busy = state.busy,
+            serverErrors = state.fieldErrors,
+            dismiss = { if (!state.busy) passwordOpen = false },
+            save = viewModel::changePassword
+        )
+    }
+}
+
+@Composable
+private fun EditFullNameDialog(
+    currentName: String,
+    busy: Boolean,
+    serverError: String?,
+    dismiss: () -> Unit,
+    save: (String) -> Unit
+) {
+    var name by rememberSaveable(currentName) { mutableStateOf(currentName) }
+    var localError by remember { mutableStateOf<String?>(null) }
+    val error = localError ?: serverError
+    AlertDialog(
+        onDismissRequest = dismiss,
+        title = { Text("Edit full name") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Use the complete name you want Hawelly staff to see.")
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it; localError = null },
+                    label = { Text("Full name") },
+                    supportingText = error?.let { message -> { Text(message) } },
+                    isError = error != null,
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                enabled = !busy,
+                onClick = {
+                    val validation = validatePersonName(name)
+                    localError = validation.error
+                    if (validation.error == null) save(validation.normalized)
+                }
+            ) { Text(if (busy) "Saving…" else "Save") }
+        },
+        dismissButton = { TextButton(enabled = !busy, onClick = dismiss) { Text("Cancel") } }
+    )
+}
+
+@Composable
+private fun ChangePasswordDialog(
+    busy: Boolean,
+    serverErrors: Map<String, String>,
+    dismiss: () -> Unit,
+    save: (String, String) -> Unit
+) {
+    var currentPassword by remember { mutableStateOf("") }
+    var newPassword by remember { mutableStateOf("") }
+    var confirmation by remember { mutableStateOf("") }
+    var localErrors by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    fun errorFor(field: String) = localErrors[field] ?: serverErrors[field]
+    AlertDialog(
+        onDismissRequest = dismiss,
+        title = { Text("Change password") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Use 12–128 characters. You will sign in again after the change.")
+                OutlinedTextField(
+                    value = currentPassword,
+                    onValueChange = {
+                        currentPassword = it
+                        localErrors = localErrors - "currentPassword"
+                    },
+                    label = { Text("Current password") },
+                    supportingText = errorFor("currentPassword")?.let { message -> { Text(message) } },
+                    isError = errorFor("currentPassword") != null,
+                    visualTransformation = PasswordVisualTransformation(),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = newPassword,
+                    onValueChange = {
+                        newPassword = it
+                        localErrors = localErrors - "newPassword" - "confirmation"
+                    },
+                    label = { Text("New password") },
+                    supportingText = errorFor("newPassword")?.let { message -> { Text(message) } },
+                    isError = errorFor("newPassword") != null,
+                    visualTransformation = PasswordVisualTransformation(),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = confirmation,
+                    onValueChange = {
+                        confirmation = it
+                        localErrors = localErrors - "confirmation"
+                    },
+                    label = { Text("Confirm new password") },
+                    supportingText = errorFor("confirmation")?.let { message -> { Text(message) } },
+                    isError = errorFor("confirmation") != null,
+                    visualTransformation = PasswordVisualTransformation(),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                enabled = !busy,
+                onClick = {
+                    localErrors = validatePasswordChange(
+                        currentPassword,
+                        newPassword,
+                        confirmation
+                    )
+                    if (localErrors.isEmpty()) save(currentPassword, newPassword)
+                }
+            ) { Text(if (busy) "Changing…" else "Change password") }
+        },
+        dismissButton = { TextButton(enabled = !busy, onClick = dismiss) { Text("Cancel") } }
+    )
 }
 
 @Composable

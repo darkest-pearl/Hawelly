@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { Prisma } from "../generated/prisma/client.js";
 import {
   ActivityOutcome,
@@ -88,6 +88,22 @@ export interface TransferInput {
   sendCurrency: string;
   requestedPayoutMethod: PayoutMethod;
   senderNote?: string | undefined;
+}
+
+function transferRequestFingerprint(input: TransferInput) {
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        recipientId: input.recipientId,
+        originCountry: input.originCountry,
+        destinationCountry: input.destinationCountry,
+        sendAmountMinor: input.sendAmountMinor,
+        sendCurrency: input.sendCurrency,
+        requestedPayoutMethod: input.requestedPayoutMethod,
+        senderNote: input.senderNote ?? null
+      })
+    )
+    .digest("hex");
 }
 
 function requireSender(principal: AuthPrincipal) {
@@ -555,9 +571,29 @@ export class TransferWorkflowService {
   async createTransfer(
     principal: AuthPrincipal,
     input: TransferInput,
-    context: RequestContext
+    context: RequestContext,
+    idempotencyKey?: string
   ) {
     requireSender(principal);
+    const requestFingerprint = transferRequestFingerprint(input);
+    if (idempotencyKey) {
+      const existing = await this.database.transferCreationIdempotency.findUnique({
+        where: {
+          senderId_idempotencyKey: { senderId: principal.userId, idempotencyKey }
+        },
+        include: { transferRequest: true }
+      });
+      if (existing) {
+        if (existing.requestFingerprint !== requestFingerprint) {
+          throw new PublicApiError(
+            409,
+            "IDEMPOTENCY_KEY_REUSED",
+            "This submission key was already used for a different transfer request"
+          );
+        }
+        return { transfer: transferProjection(existing.transferRequest), replayed: true };
+      }
+    }
     const amount = BigInt(input.sendAmountMinor);
     if (amount < 1n || amount > MAX_POSTGRES_BIGINT) {
       throw new PublicApiError(400, "INVALID_AMOUNT", "Send amount is invalid");
@@ -604,10 +640,37 @@ export class TransferWorkflowService {
       payoutDetails: recipient.payoutDetails,
       address: recipient.address
     } satisfies Prisma.InputJsonObject;
-    let transfer;
+    let result;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
-        transfer = await this.database.$transaction(async (transaction) => {
+        result = await this.database.$transaction(async (transaction) => {
+          if (idempotencyKey) {
+            await transaction.$queryRaw`
+              WITH acquired AS MATERIALIZED (
+                SELECT pg_advisory_xact_lock(hashtextextended(${`transfer-idempotency:${principal.userId}:${idempotencyKey}`}, 0))
+              )
+              SELECT 1 AS "acquired" FROM acquired
+            `;
+            const existing = await transaction.transferCreationIdempotency.findUnique({
+              where: {
+                senderId_idempotencyKey: {
+                  senderId: principal.userId,
+                  idempotencyKey
+                }
+              },
+              include: { transferRequest: true }
+            });
+            if (existing) {
+              if (existing.requestFingerprint !== requestFingerprint) {
+                throw new PublicApiError(
+                  409,
+                  "IDEMPOTENCY_KEY_REUSED",
+                  "This submission key was already used for a different transfer request"
+                );
+              }
+              return { transfer: existing.transferRequest, replayed: true };
+            }
+          }
           await transaction.$queryRaw`
             WITH acquired AS MATERIALIZED (
               SELECT pg_advisory_xact_lock(hashtextextended(${`sender-write:${principal.userId}`}, 0))
@@ -661,6 +724,16 @@ export class TransferWorkflowService {
               createdAt: now
             }
           });
+          if (idempotencyKey) {
+            await transaction.transferCreationIdempotency.create({
+              data: {
+                senderId: principal.userId,
+                idempotencyKey,
+                requestFingerprint,
+                transferRequestId: created.id
+              }
+            });
+          }
           await writeActivity(transaction, {
             actorUserId: principal.userId,
             actorRole: principal.role,
@@ -677,7 +750,7 @@ export class TransferWorkflowService {
               destinationCountry: created.destinationCountry
             }
           });
-          return created;
+          return { transfer: created, replayed: false };
         });
         break;
       } catch (error) {
@@ -690,8 +763,11 @@ export class TransferWorkflowService {
         }
       }
     }
-    if (!transfer) throw new Error("Transfer reference generation failed");
-    return transferProjection(transfer);
+    if (!result) throw new Error("Transfer reference generation failed");
+    return {
+      transfer: transferProjection(result.transfer),
+      replayed: result.replayed
+    };
   }
 
   async getSenderTransfer(
