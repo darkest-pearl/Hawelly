@@ -1194,9 +1194,9 @@ private fun ChangePasswordDialog(
     dismiss: () -> Unit,
     save: (String, String) -> Unit
 ) {
-    var currentPassword by rememberSaveable { mutableStateOf("") }
-    var newPassword by rememberSaveable { mutableStateOf("") }
-    var confirmation by rememberSaveable { mutableStateOf("") }
+    var currentPassword by remember { mutableStateOf("") }
+    var newPassword by remember { mutableStateOf("") }
+    var confirmation by remember { mutableStateOf("") }
     var localErrors by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     fun errorFor(field: String) = localErrors[field] ?: serverErrors[field]
     AlertDialog(
