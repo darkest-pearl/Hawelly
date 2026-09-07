@@ -10,11 +10,11 @@ import java.net.URLEncoder
 class HawellyRepository(
     private val api: ApiClient,
     private val store: SecureSessionStore
-) {
+) : HawellyDataSource {
     private val refreshMutex = Mutex()
     @Volatile private var session: SessionTokens? = null
 
-    suspend fun restore(): User? {
+    override suspend fun restore(): User? {
         val refreshToken = store.readRefreshToken() ?: return null
         return runCatching { refreshWith(refreshToken).user }.getOrElse {
             clearSession()
@@ -22,7 +22,7 @@ class HawellyRepository(
         }
     }
 
-    suspend fun login(email: String, password: String): User {
+    override suspend fun login(email: String, password: String): User {
         val value = api.request(
             "POST",
             "/auth/login",
@@ -31,7 +31,7 @@ class HawellyRepository(
         return acceptSession(parseSession(value)).user
     }
 
-    suspend fun register(fullName: String, email: String, password: String): User {
+    override suspend fun register(fullName: String, email: String, password: String): User {
         val value = api.request(
             "POST",
             "/auth/register",
@@ -43,9 +43,28 @@ class HawellyRepository(
         return acceptSession(parseSession(value)).user
     }
 
-    suspend fun me(): User = parseUser(authenticated("GET", "/me"))
+    override suspend fun me(): User = parseUser(authenticated("GET", "/me"))
 
-    suspend fun logout() {
+    override suspend fun updateFullName(fullName: String): User = parseUser(
+        authenticated(
+            "PATCH",
+            "/me",
+            JSONObject().put("fullName", fullName)
+        ).getJSONObject("user")
+    )
+
+    override suspend fun changePassword(currentPassword: String, newPassword: String) {
+        authenticated(
+            "POST",
+            "/me/change-password",
+            JSONObject()
+                .put("currentPassword", currentPassword)
+                .put("newPassword", newPassword)
+        )
+        clearSession()
+    }
+
+    override suspend fun logout() {
         val refresh = store.readRefreshToken()
         runCatching {
             api.request("POST", "/auth/logout", body = JSONObject().apply {
@@ -55,7 +74,7 @@ class HawellyRepository(
         clearSession()
     }
 
-    suspend fun logoutAll() {
+    override suspend fun logoutAll() {
         clearAfterConfirmedRevocation(
             revoke = {
                 authenticated("POST", "/auth/logout-all", JSONObject())
@@ -65,15 +84,15 @@ class HawellyRepository(
         )
     }
 
-    suspend fun listRecipients(): List<Recipient> =
+    override suspend fun listRecipients(): List<Recipient> =
         authenticated("GET", "/recipients").getJSONArray("recipients").objects().map(::parseRecipient)
 
-    suspend fun transferOptions(): SenderTransferOptions =
+    override suspend fun transferOptions(): SenderTransferOptions =
         parseTransferOptions(
             authenticated("GET", "/transfers/options").getJSONObject("options")
         )
 
-    suspend fun createRecipient(
+    override suspend fun createRecipient(
         fullName: String,
         country: String,
         phone: String?,
@@ -91,7 +110,7 @@ class HawellyRepository(
         return parseRecipient(authenticated("POST", "/recipients", body).getJSONObject("recipient"))
     }
 
-    suspend fun updateRecipient(
+    override suspend fun updateRecipient(
         recipientId: String,
         fullName: String,
         country: String,
@@ -110,19 +129,20 @@ class HawellyRepository(
         return parseRecipient(authenticated("PATCH", "/recipients/$recipientId", body).getJSONObject("recipient"))
     }
 
-    suspend fun deleteRecipient(recipientId: String) {
+    override suspend fun deleteRecipient(recipientId: String) {
         authenticated("DELETE", "/recipients/$recipientId")
     }
 
-    suspend fun listTransfers(): List<Transfer> =
+    override suspend fun listTransfers(): List<Transfer> =
         authenticated("GET", "/transfers").getJSONArray("transfers").objects().map(::parseTransfer)
 
-    suspend fun createTransfer(
+    override suspend fun createTransfer(
         recipient: Recipient,
         originCountry: String,
         amountMinor: String,
         sendCurrency: String,
-        senderNote: String?
+        senderNote: String?,
+        idempotencyKey: String
     ): Transfer {
         val body = JSONObject()
             .put("recipientId", recipient.id)
@@ -132,11 +152,13 @@ class HawellyRepository(
             .put("sendCurrency", sendCurrency.trim().uppercase())
             .put("requestedPayoutMethod", recipient.payoutMethod.name)
         senderNote?.trim()?.takeIf(String::isNotEmpty)?.let { body.put("senderNote", it) }
-        return parseTransfer(authenticated("POST", "/transfers", body).getJSONObject("transfer"))
+        return parseTransfer(
+            authenticated("POST", "/transfers", body, idempotencyKey).getJSONObject("transfer")
+        )
     }
 
-    suspend fun transferBundle(transferId: String): TransferBundle = coroutineScope {
-        val transfer = async { parseTransfer(authenticated("GET", "/transfers/$transferId")) }
+    override suspend fun transferBundle(transferId: String): TransferBundle = coroutineScope {
+        val transfer = async { parseTransferResponse(authenticated("GET", "/transfers/$transferId")) }
         val quotes = async {
             authenticated("GET", "/transfers/$transferId/quotes")
                 .getJSONArray("quotes").objects().map(::parseQuote)
@@ -147,13 +169,13 @@ class HawellyRepository(
         TransferBundle(transfer.await(), quotes.await(), funding.await(), payout.await(), resolution.await())
     }
 
-    suspend fun decideQuote(transferId: String, quoteId: String, decision: String, reason: String?) {
+    override suspend fun decideQuote(transferId: String, quoteId: String, decision: String, reason: String?) {
         val body = JSONObject().put("decision", decision)
         reason?.trim()?.takeIf(String::isNotEmpty)?.let { body.put("reason", it) }
         authenticated("POST", "/transfers/$transferId/quotes/$quoteId/decision", body)
     }
 
-    suspend fun submitFundingProof(
+    override suspend fun submitFundingProof(
         transferId: String,
         reference: String?,
         senderNote: String?,
@@ -178,13 +200,13 @@ class HawellyRepository(
         }
     }
 
-    suspend fun confirmRecipientReceived(transferId: String, note: String?) {
+    override suspend fun confirmRecipientReceived(transferId: String, note: String?) {
         val body = JSONObject()
         note?.trim()?.takeIf(String::isNotEmpty)?.let { body.put("note", it) }
         authenticated("POST", "/transfers/$transferId/recipient-confirmation", body)
     }
 
-    suspend fun openDispute(transferId: String, category: String, reason: String) {
+    override suspend fun openDispute(transferId: String, category: String, reason: String) {
         authenticated(
             "POST",
             "/transfers/$transferId/disputes",
@@ -192,18 +214,23 @@ class HawellyRepository(
         )
     }
 
-    suspend fun checkUpdate(versionCode: Int): UpdateMetadata = parseUpdate(
+    override suspend fun checkUpdate(versionCode: Int): UpdateMetadata = parseUpdate(
         api.request("GET", "/app-updates/android?versionCode=${encode(versionCode.toString())}")
     )
 
-    private suspend fun authenticated(method: String, path: String, body: JSONObject? = null): JSONObject {
+    private suspend fun authenticated(
+        method: String,
+        path: String,
+        body: JSONObject? = null,
+        idempotencyKey: String? = null
+    ): JSONObject {
         val current = session ?: throw ApiException(401, "AUTH_REQUIRED", "Sign in required")
         return try {
-            api.request(method, path, current.accessToken, body)
+            api.request(method, path, current.accessToken, body, idempotencyKey)
         } catch (error: ApiException) {
             if (error.status != 401) throw error
             val refreshed = refreshAfter(current.accessToken)
-            api.request(method, path, refreshed.accessToken, body)
+            api.request(method, path, refreshed.accessToken, body, idempotencyKey)
         }
     }
 

@@ -3,9 +3,10 @@ package com.hawelly.sender
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import com.hawelly.sender.data.ApiClient
 import com.hawelly.sender.data.HawellyRepository
 import com.hawelly.sender.data.SecureSessionStore
@@ -19,10 +20,10 @@ class MainActivity : ComponentActivity() {
             ApiClient(BuildConfig.API_BASE_URL),
             SecureSessionStore(applicationContext)
         )
-        val factory = object : ViewModelProvider.Factory {
-            @Suppress("UNCHECKED_CAST")
-            override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                HawellyViewModel(repository) as T
+        val factory = viewModelFactory {
+            initializer {
+                HawellyViewModel(repository, createSavedStateHandle())
+            }
         }
         setContent {
             val model: HawellyViewModel = viewModel(factory = factory)
